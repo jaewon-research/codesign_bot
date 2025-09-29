@@ -106,7 +106,6 @@ class SocialAgent(ChatAgent):
         super().__init__(
             system_message=system_message,
             model=model,
-            scheduling_strategy='random_model',
             tools=all_tools,
         )
         self.max_iteration = max_iteration
