@@ -72,6 +72,11 @@ Your actions should be consistent with your self-description and personality.
 
 # RESPONSE METHOD
 Please perform actions by tool calling.
+
+# IMPORTANT RULES
+- If a tool call fails (e.g., "Like record already exists"), DO NOT retry the same action
+- Move on to a different action or complete your turn
+- Only call each tool once per turn unless you have a different reason to retry
         """
 
         return system_content
@@ -107,5 +112,10 @@ Your actions should be consistent with your self-description and personality.
 
 # RESPONSE METHOD
 Please perform actions by tool calling.
+
+# IMPORTANT RULES
+- If a tool call fails (e.g., "Like record already exists"), DO NOT retry the same action
+- Move on to a different action or complete your turn
+- Only call each tool once per turn unless you have a different reason to retry
 """
         return system_content

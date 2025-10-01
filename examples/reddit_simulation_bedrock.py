@@ -30,10 +30,23 @@ Usage:
 import asyncio
 import os
 import sys
+import logging
 from typing import List, Dict, Any
 
 # Add the oasis directory to the path
 sys.path.append('/Users/robertgiometti/School/Research/CommunityBot/codesign_bot/oasis')
+
+# Configure logging with cleaner output
+logging.basicConfig(
+    level=logging.WARNING,  # Reduce default noise
+    format='%(levelname)s - %(message)s'
+)
+
+# Enable INFO logging only for key components
+logging.getLogger('oasis.models.bedrock_model').setLevel(logging.INFO)
+logging.getLogger('oasis.social_agent.agent').setLevel(logging.INFO)  # Show agent actions
+logging.getLogger('camel.agents.chat_agent').setLevel(logging.WARNING)  # Reduce CAMEL verbosity
+logging.getLogger('oasis.environment').setLevel(logging.INFO)
 
 import oasis
 from oasis import (
@@ -90,7 +103,7 @@ async def run_bedrock_simulation():
     print("🤖 Setting up AWS Bedrock model...")
     try:
         bedrock_model = BedrockModelFactory.create_claude_3_5_sonnet(
-            region_name="us-east-1",
+            region_name="us-east-2",  # Change from us-east-1 to us-east-2
             temperature=0.7,
             max_tokens=4096
         )
@@ -149,7 +162,9 @@ async def run_bedrock_simulation():
     print("\n📝 Running simulation steps...")
     
     # Step 1: Initial posts
-    print("\n📝 Step 1: Creating initial posts...")
+    print("\n" + "=" * 80)
+    print("📝 STEP 1: Creating initial posts")
+    print("=" * 80)
     try:
         initial_posts = {}
         topics = [
@@ -160,44 +175,78 @@ async def run_bedrock_simulation():
             "What's your go-to comfort food?"
         ]
         
-        for i in range(min(5, len(env.agent_graph.get_agents()))):
+        num_initial_posts = min(5, len(env.agent_graph.get_agents()))
+        print(f"📊 Creating {num_initial_posts} initial posts\n")
+        
+        for i in range(num_initial_posts):
             agent = env.agent_graph.get_agent(i)
             initial_posts[agent] = ManualAction(
                 action_type=ActionType.CREATE_POST,
                 action_args={"content": topics[i]}
             )
+            print(f"   {i+1}. Agent {agent.social_agent_id} ({agent.user_info.user_name}): \"{topics[i][:50]}...\"")
         
         await env.step(initial_posts)
-        print("✅ Initial posts created")
+        print("\n" + "=" * 80)
+        print("✅ STEP 1 COMPLETED - Initial posts created")
+        print("=" * 80)
     except Exception as e:
         print(f"❌ Failed to create initial posts: {e}")
         return
     
-    # Step 2: LLM actions with Bedrock
-    print("\n🤖 Step 2: Natural agent interactions with Bedrock...")
+    # Step 2: LLM actions with Bedrock (test with fewer agents first)
+    print("\n" + "=" * 80)
+    print("🤖 STEP 2: Natural agent interactions with Bedrock")
+    print("=" * 80)
+    print("⏱️  This may take 30-60 seconds as agents call Bedrock API...")
+    
+    # Start with just 3 agents for testing
+    num_test_agents = min(3, len(env.agent_graph.get_agents()))
+    print(f"📊 Testing with {num_test_agents} agents")
+    
     try:
+        import time
+        start_time = time.time()
+        
+        test_agents = [agent for _, agent in list(env.agent_graph.get_agents())[:num_test_agents]]
+        
+        # Print which agents will act
+        print("\n👥 Agents in this round:")
+        for i, agent in enumerate(test_agents, 1):
+            print(f"   {i}. Agent {agent.social_agent_id} - {agent.user_info.user_name}")
+        print()
+        
         llm_actions = {
             agent: LLMAction()
-            for _, agent in env.agent_graph.get_agents()
+            for agent in test_agents
         }
+        
         await env.step(llm_actions)
-        print("✅ Natural interactions completed")
+        
+        elapsed = time.time() - start_time
+        print("\n" + "=" * 80)
+        print(f"✅ STEP 2 COMPLETED in {elapsed:.1f}s ({elapsed/num_test_agents:.1f}s per agent)")
+        print("=" * 80)
     except Exception as e:
         print(f"❌ Failed to run LLM actions: {e}")
+        import traceback
+        traceback.print_exc()
         return
     
-    # Step 3: Another round of interactions
-    print("\n🤖 Step 3: Second round of interactions...")
-    try:
-        llm_actions_2 = {
-            agent: LLMAction()
-            for _, agent in env.agent_graph.get_agents()
-        }
-        await env.step(llm_actions_2)
-        print("✅ Second round completed")
-    except Exception as e:
-        print(f"❌ Failed to run second round: {e}")
-        return
+    # Step 3: Another round of interactions (optional - commented out for testing)
+    print("\n⏭️  Step 3: Skipping second round for now (you can uncomment to test more)")
+    # Uncomment below to test a second round with all agents
+    # print("\n🤖 Step 3: Second round of interactions...")
+    # try:
+    #     llm_actions_2 = {
+    #         agent: LLMAction()
+    #         for _, agent in env.agent_graph.get_agents()
+    #     }
+    #     await env.step(llm_actions_2)
+    #     print("✅ Second round completed")
+    # except Exception as e:
+    #     print(f"❌ Failed to run second round: {e}")
+    #     return
     
     # Close environment
     print("\n🏁 Simulation completed!")
