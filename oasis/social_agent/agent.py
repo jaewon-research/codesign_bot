@@ -77,9 +77,23 @@ class SocialAgent(ChatAgent):
         else:
             system_message_content = self.user_info.to_custom_system_message(
                 user_info_template)
+        
+        # Handle multimodal content if image is provided
+        if self.user_info.system_image:
+            # Import image utilities
+            from oasis.utils.image_utils import prepare_multimodal_message
+            
+            # Create multimodal content with image
+            system_message_content = prepare_multimodal_message(
+                text_content=system_message_content,
+                image_source=self.user_info.system_image,
+                image_type=self.user_info.image_type
+            )
+            agent_log.info(f"Agent {agent_id}: Using multimodal system message with image")
+        
         system_message = BaseMessage.make_assistant_message(
             role_name="system",
-            content=system_message_content,  # system prompt
+            content=system_message_content,  # system prompt (text or multimodal list)
         )
 
         if not available_actions:

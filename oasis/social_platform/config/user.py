@@ -27,6 +27,10 @@ class UserInfo:
     profile: dict[str, Any] | None = None
     recsys_type: str = "twitter"
     is_controllable: bool = False
+    # Multimodal support: can be a file path, URL, or base64 encoded image
+    system_image: str | None = None
+    # Optional: type of image source ('file', 'url', 'base64')
+    image_type: str | None = None
 
     def to_custom_system_message(self, user_info_template: TextPrompt) -> str:
         required_keys = user_info_template.key_words
@@ -102,13 +106,18 @@ Please perform actions by tool calling.
                     f"personality type of {self.profile['other_info']['mbti']} from "
                     f"{self.profile['other_info']['country']}.")
 
+        # Add image context if available
+        image_context = ""
+        if self.system_image is not None:
+            image_context = "\n\n# VISUAL CONTEXT\nAn image has been provided to you as part of your context. Consider this image when making decisions."
+
         system_content = f"""
 # OBJECTIVE
 You're a Reddit user, and I'll present you with some tweets. After you see the tweets, choose some actions from the following functions.
 
 # SELF-DESCRIPTION
 Your actions should be consistent with your self-description and personality.
-{description}
+{description}{image_context}
 
 # RESPONSE METHOD
 Please perform actions by tool calling.

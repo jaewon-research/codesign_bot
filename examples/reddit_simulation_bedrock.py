@@ -32,6 +32,8 @@ import os
 import sys
 import logging
 from typing import List, Dict, Any
+from pathlib import Path
+import glob
 
 # Add the oasis directory to the path
 sys.path.append('/Users/robertgiometti/School/Research/CommunityBot/codesign_bot/oasis')
@@ -90,24 +92,71 @@ def check_aws_credentials():
     return True
 
 
+def load_system_images(images_dir: str = "./data/reddit/images") -> List[str]:
+    """
+    Load all images from the specified directory.
+    
+    Args:
+        images_dir: Path to directory containing images
+        
+    Returns:
+        List of image file paths
+    """
+    images_dir = Path(images_dir)
+    
+    if not images_dir.exists():
+        print(f"⚠️  Images directory not found: {images_dir}")
+        return []
+    
+    # Supported image formats
+    image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp', '*.bmp']
+    
+    image_files = []
+    for ext in image_extensions:
+        image_files.extend(images_dir.glob(ext))
+        # Also check uppercase extensions
+        image_files.extend(images_dir.glob(ext.upper()))
+    
+    # Convert to absolute paths
+    image_files = [str(f.absolute()) for f in image_files]
+    
+    if image_files:
+        print(f"📸 Found {len(image_files)} image(s) in {images_dir}:")
+        for img in image_files:
+            print(f"   • {Path(img).name}")
+    else:
+        print(f"⚠️  No images found in {images_dir}")
+    
+    return image_files
+
+
 async def run_bedrock_simulation():
-    """Run a Reddit simulation using AWS Bedrock."""
-    print("🚀 Starting Reddit Simulation with AWS Bedrock")
+    """Run a Reddit simulation using AWS Bedrock with multimodal support."""
+    print("🚀 Starting Reddit Simulation with AWS Bedrock (Multimodal)")
     print("=" * 60)
     
     # Check AWS credentials
     if not check_aws_credentials():
         return
     
+    # Load system images
+    print("\n📸 Loading system images...")
+    system_images = load_system_images("./data/reddit/images")
+    
+    if system_images:
+        print(f"✅ Loaded {len(system_images)} image(s) for multimodal context")
+    else:
+        print("⚠️  No images loaded - running in text-only mode")
+    
     # Create Bedrock model
-    print("🤖 Setting up AWS Bedrock model...")
+    print("\n🤖 Setting up AWS Bedrock model...")
     try:
         bedrock_model = BedrockModelFactory.create_claude_3_5_sonnet(
-            region_name="us-east-2",  # Change from us-east-1 to us-east-2
+            region_name="us-east-2",
             temperature=0.7,
             max_tokens=4096
         )
-        print("✅ Bedrock model created successfully")
+        print("✅ Bedrock model created successfully (Claude 3.5 with vision support)")
     except Exception as e:
         print(f"❌ Failed to create Bedrock model: {e}")
         return
@@ -116,17 +165,130 @@ async def run_bedrock_simulation():
     available_actions = ActionType.get_default_reddit_actions()
     print(f"📋 Available actions: {[action.value for action in available_actions]}")
     
-    # Create agent graph
-    print("🔗 Creating agent graph...")
+    # Create agent graph with multimodal agents
+    print("\n🔗 Creating agent graph with multimodal agents...")
     try:
-        agent_graph = await generate_reddit_agent_graph(
-            profile_path="./data/reddit/user_data_36.json",
-            model=bedrock_model,
-            available_actions=available_actions,
-        )
+        # Load user data and inject images BEFORE creating agents
+        import json
+        from oasis.social_agent import AgentGraph, SocialAgent
+        from oasis.social_platform.config import UserInfo
+        from oasis.utils.image_utils import create_image_content_block
+        from camel.messages import BaseMessage
+        
+        with open("./data/reddit/user_data_36.json", "r") as file:
+            agent_info = json.load(file)
+        
+        agent_graph = AgentGraph()
+        
+        async def process_agent_with_images(i):
+            # Create profile for this agent
+            profile = {
+                "nodes": [],
+                "edges": [],
+                "other_info": {
+                    "user_profile": agent_info[i]["persona"],
+                    "mbti": agent_info[i]["mbti"],
+                    "gender": agent_info[i]["gender"],
+                    "age": agent_info[i]["age"],
+                    "country": agent_info[i]["country"]
+                }
+            }
+            
+            # Create UserInfo - we'll manually handle multimodal content
+            user_info = UserInfo(
+                name=agent_info[i]["username"],
+                description=agent_info[i]["bio"],
+                profile=profile,
+                recsys_type="reddit",
+                system_image=", ".join([Path(img).name for img in system_images]) if system_images else None,
+                image_type="file" if system_images else None
+            )
+            
+            # If we have images, we need to create the multimodal system message BEFORE creating the agent
+            if system_images:
+                # Get the text system message
+                system_message_text = user_info.to_system_message()
+                content_blocks = []
+                
+                # Add ALL images first
+                for img_path in system_images:
+                    image_block = create_image_content_block(img_path, "file")
+                    if image_block:
+                        content_blocks.append(image_block)
+                
+                # Add text content last
+                content_blocks.append({
+                    "type": "text",
+                    "text": system_message_text
+                })
+                
+                # Create the multimodal system message
+                system_message = BaseMessage.make_assistant_message(
+                    role_name="system",
+                    content=content_blocks,
+                )
+            else:
+                # Text-only system message
+                system_message = BaseMessage.make_assistant_message(
+                    role_name="system",
+                    content=user_info.to_system_message(),
+                )
+            
+            # Create agent with pre-built system message
+            # We need to use the lower-level initialization
+            from oasis.social_platform import Channel
+            from oasis.social_agent.agent_action import SocialAction
+            from oasis.social_agent.agent_environment import SocialEnvironment
+            
+            agent = SocialAgent.__new__(SocialAgent)
+            agent.social_agent_id = i
+            agent.user_info = user_info
+            agent.channel = Channel()
+            agent.env = SocialEnvironment(SocialAction(i, agent.channel))
+            
+            # Get action tools
+            if not available_actions:
+                agent.action_tools = agent.env.action.get_openai_function_list()
+            else:
+                all_tools = agent.env.action.get_openai_function_list()
+                agent.action_tools = [
+                    tool for tool in all_tools if tool.func.__name__ in [
+                        a.value if isinstance(a, ActionType) else a
+                        for a in available_actions
+                    ]
+                ]
+            
+            # Initialize the ChatAgent parent with our custom system message
+            from camel.agents import ChatAgent
+            ChatAgent.__init__(
+                agent,
+                system_message=system_message,
+                model=bedrock_model,
+                tools=agent.action_tools,
+            )
+            
+            agent.max_iteration = 1
+            agent.interview_record = False
+            agent.agent_graph = agent_graph
+            
+            # Add agent to the graph
+            agent_graph.add_agent(agent)
+        
+        # Process all agents
+        import asyncio
+        tasks = [process_agent_with_images(i) for i in range(len(agent_info))]
+        await asyncio.gather(*tasks)
+        
+        if system_images:
+            print(f"🎨 Each agent configured with ALL {len(system_images)} image(s):")
+            for img in system_images:
+                print(f"   • {Path(img).name}")
+        
         print(f"✅ Agent graph created with {len(agent_graph.get_agents())} agents")
     except Exception as e:
         print(f"❌ Failed to create agent graph: {e}")
+        import traceback
+        traceback.print_exc()
         return
     
     # Create environment
@@ -263,10 +425,17 @@ async def run_bedrock_simulation():
     # Print simulation statistics
     print("\n📈 Simulation Statistics:")
     print(f"   • Total agents: {len(env.agent_graph.get_agents())}")
+    print(f"   • Multimodal agents: {len(system_images) if system_images else 0}/{len(env.agent_graph.get_agents())}")
+    print(f"   • System images used: {len(system_images) if system_images else 0}")
     print(f"   • Database file: {db_path}")
-    print(f"   • Model: {bedrock_model.get_model_name()}")
-    print(f"   • Region: us-east-1")
-    print(f"   • Simulation steps: 3")
+    print(f"   • Model: {bedrock_model.get_model_name()} (with vision)")
+    print(f"   • Region: us-east-2")
+    print(f"   • Simulation steps: 2")
+    
+    if system_images:
+        print("\n🎨 Image Context:")
+        for img in system_images:
+            print(f"   • {Path(img).name}")
     
     return db_path
 
