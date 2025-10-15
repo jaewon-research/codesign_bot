@@ -709,50 +709,39 @@ def get_mock_posts():
     """Return mock posts for demonstration."""
     return [
         {
-            "id": 1,
-            "author": {
-                "id": 1,
-                "username": "millerhospitality",
-                "name": "James Miller",
-                "avatar": "JM"
-            },
+            "post_id": "1",
+            "user_id": "1",
             "content": "Just discovered this amazing new AI tool for hospitality management. The way it can predict guest preferences is mind-blowing! Anyone else in the industry experimenting with AI?",
-            "timestamp": datetime.now() - timedelta(minutes=15),
-            "likes": 23,
-            "comments": 8,
-            "shares": 3,
-            "isLiked": False,
-            "comments_list": [
-                {
-                    "id": 1,
-                    "author": "emma_logistics_guru",
-                    "content": "Fascinating! We're using similar tech in logistics. The predictive capabilities are game-changing.",
-                    "timestamp": datetime.now() - timedelta(minutes=12)
-                }
-            ]
+            "created_at": (datetime.now() - timedelta(minutes=15)).isoformat(),
+            "num_likes": 23
         },
         {
-            "id": 2,
-            "author": {
-                "id": 2,
-                "username": "emma_logistics_guru",
-                "name": "Emma Hayes",
-                "avatar": "EH"
-            },
-            "content": "The future of transportation is here! Just attended a conference on autonomous logistics. The efficiency gains are incredible - we're talking 40% reduction in delivery times.",
-            "timestamp": datetime.now() - timedelta(minutes=45),
-            "likes": 67,
-            "comments": 15,
-            "shares": 12,
-            "isLiked": True,
-            "comments_list": [
-                {
-                    "id": 2,
-                    "author": "biz_mind45",
-                    "content": "Great insights! The job market evolution is definitely something to watch.",
-                    "timestamp": datetime.now() - timedelta(minutes=40)
-                }
-            ]
+            "post_id": "2", 
+            "user_id": "2",
+            "content": "The future of AI in healthcare is incredibly promising. We're seeing breakthroughs in diagnostic accuracy that were unimaginable just a few years ago.",
+            "created_at": (datetime.now() - timedelta(minutes=30)).isoformat(),
+            "num_likes": 45
+        },
+        {
+            "post_id": "3",
+            "user_id": "3", 
+            "content": "Climate change solutions through technology are our best hope. Renewable energy innovations are accelerating faster than anyone predicted.",
+            "created_at": (datetime.now() - timedelta(hours=1)).isoformat(),
+            "num_likes": 67
+        },
+        {
+            "post_id": "4",
+            "user_id": "4",
+            "content": "Remote work has fundamentally changed how we think about productivity. The hybrid model seems to be the sweet spot for most teams.",
+            "created_at": (datetime.now() - timedelta(hours=2)).isoformat(),
+            "num_likes": 34
+        },
+        {
+            "post_id": "5",
+            "user_id": "5",
+            "content": "The intersection of blockchain and supply chain management is creating unprecedented transparency in global trade.",
+            "created_at": (datetime.now() - timedelta(hours=3)).isoformat(),
+            "num_likes": 28
         }
     ]
 
@@ -799,6 +788,30 @@ def get_stats(simulation_id):
 def health_check():
     """Health check endpoint."""
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+@app.route('/api/agent/<int:agent_id>', methods=['GET'])
+def get_agent_data(agent_id):
+    """Get agent-specific data for the frontend."""
+    try:
+        # Get simulation stats
+        stats = get_simulation_stats()
+        
+        # Create mock agent data (you can replace this with real database queries)
+        agent_data = {
+            "agent": {
+                "id": agent_id,
+                "name": f"Agent {agent_id}",
+                "followers": random.randint(50, 500),
+                "following": random.randint(20, 200),
+                "bio": f"This is Agent {agent_id}'s profile"
+            },
+            "posts": get_mock_posts()
+        }
+        
+        return jsonify(agent_data)
+    except Exception as e:
+        log_message(f"❌ Error getting agent data: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # Simulation Management Endpoints
 @app.route('/api/simulation/status', methods=['GET'])
