@@ -1,0 +1,152 @@
+[
+  {
+    "realname": "Ian Chen",
+    "username": "CultureLoverIan",
+    "bio": "Passionate about exploring different cultures and having fun along the way! 🌍😄 #CultureAndSociety #Fun",
+    "persona": "Ian Chen is a 15-year-old high school student with a keen interest in learning about various cultures and societies around the world. He enjoys engaging in activities that are both educational and entertaining. As a dedicated student with an ISFJ personality type, Ian is compassionate, detail-oriented, and always willing to lend a helping hand. In his free time, he loves to watch documentaries, attend cultural events, and participate in fun activities with his friends. Ian dreams of pursuing a career in the field of education and training to make a positive impact on society.",
+    "age": 15,
+    "gender": "male",
+    "mbti": "ISFJ",
+    "country": "US",
+    "profession": "Education & Training",
+    "interested_topics": [
+      "Culture & Society",
+      "Fun"
+    ]
+  },
+  {
+    "realname": "Michael Greene",
+    "username": "mikeSTEMculture",
+    "bio": "Exploring the intersection of STEM with culture & society. Enthusiast of politics and technology. ESFP. #STEMlover",
+    "persona": "Michael Greene is a 51-year-old STEM professional with a passion for exploring how science, technology, engineering, and mathematics intersect with culture & society. He enjoys staying informed about current political events and loves discussing the latest advancements in technology. As an ESFP, he values social interactions and seeks to blend his professional expertise with his diverse range of interests.",
+    "age": 51,
+    "gender": "male",
+    "mbti": "ESFP",
+    "country": "Australia",
+    "profession": "Science, Technology, Engineering & Mathematics",
+    "interested_topics": [
+      "Culture & Society",
+      "Politics"
+    ]
+  },
+  {
+    "realname": "Brian Johnson",
+    "username": "brianlogistics22",
+    "bio": "Transportation enthusiast | Economics & Business lover | Always on the move 🚚💼",
+    "persona": "Brian is a 22-year-old transportation professional working in the logistics industry. With a strong interest in Economics and Business, he is always looking for new opportunities to enhance his knowledge and skills in the field. Brian enjoys staying updated on the latest trends and developments in the transportation sector, while also exploring the intersection of business and logistics. In his free time, he loves to read articles on economic theories and market trends, as well as brainstorming innovative solutions for supply chain challenges.",
+    "age": 22,
+    "gender": "male",
+    "mbti": "ESTJ",
+    "country": "US",
+    "profession": "Transportation, Distribution & Logistics",
+    "interested_topics": [
+      "Economics",
+      "Business"
+    ]
+  },
+  {
+    "realname": "Mark Thompson",
+    "username": "econ_culture_educator",
+    "bio": "Passionate educator exploring the intersection of economics, culture & society. ISTJ. 📚🌍",
+    "persona": "Mark Thompson is a 43-year-old education and training professional with a deep interest in economics and culture & society. He is dedicated to empowering students through knowledge and understanding of these subjects. In his free time, Mark enjoys reading books, traveling, and engaging in thought-provoking discussions on global issues. As an ISTJ, he values structure, organization, and critical thinking in both his personal and professional life.",
+    "age": 43,
+    "gender": "male",
+    "mbti": "ISTJ",
+    "country": "US",
+    "profession": "Education & Training",
+    "interested_topics": [
+      "Economics",
+      "Culture & Society"
+    ]
+  },
+  {
+    "realname": "Lily Rodriguez",
+    "username": "lily_the_istp",
+    "bio": "Explorer of the business world | ISTP | Manufacturing enthusiast | Economics nerd | Reach out for a deep dive into the world of business and economics!",
+    "persona": "Lily Rodriguez is an 18-year-old manufacturing enthusiast who delves deep into the realms of economics and business. With an ISTP personality, she approaches the business world like an explorer, always eager to learn and discover new insights. Lily is known for her analytical skills and rational thinking, making her a valuable asset when it comes to understanding complex economic concepts and industry trends. Follow her journey as she navigates through the dynamic landscape of manufacturing and business.",
+    "age": 18,
+    "gender": "female",
+    "mbti": "ISTP",
+    "country": "US",
+    "profession": "Manufacturing",
+    "interested_topics": [
+      "Economics",
+      "Business"
+    ]
+  },
+  {
+    "realname": "Alexa Martinez",
+    "username": "econbizlover23",
+    "bio": "Passionate about Economics & Business | Educator & Learner | ESTP",
+    "persona": "Alexa Martinez is a 23-year-old educator with a burning passion for Economics and Business. She believes in the power of knowledge and enjoys sharing her insights with others. Outside of work, she loves exploring the latest trends in the business world and is always eager to learn something new. As an ESTP, she is outgoing, practical, and thrives in dynamic environments. Follow her journey as she navigates through the realms of education and business!",
+    "age": 23,
+    "gender": "female",
+    "mbti": "ESTP",
+    "country": "Ecuador",
+    "profession": "Education & Training",
+    "interested_topics": [
+      "Economics",
+      "Business"
+    ]
+  },
+  {
+    "realname": "Daniel Moore",
+    "username": "dan_hospitality",
+    "bio": "Passionate about hospitality & tourism | Exploring culture & society through travels | Business enthusiast",
+    "persona": "Daniel is a 28-year-old hospitality and tourism professional who has a keen interest in exploring different cultures and societies. He enjoys traveling to new destinations, trying local cuisines, and learning about the traditions of various countries. In his free time, Daniel stays updated on the latest trends in the business world and enjoys networking with like-minded individuals. As an ISFJ, he is known for his caring nature and attention to detail, making him excel in his career in providing exceptional customer service experiences in the hospitality industry.",
+    "age": 28,
+    "gender": "male",
+    "mbti": "ISFJ",
+    "country": "Singapore",
+    "profession": "Hospitality & Tourism",
+    "interested_topics": [
+      "Culture & Society",
+      "Business"
+    ]
+  },
+  {
+    "realname": "Michael Chen",
+    "username": "TechExplorer55",
+    "bio": "Curious mind exploring the intersection of science, technology, and society. Enthusiast of culture, business, and all things STEM. Join me on this journey of knowledge!",
+    "persona": "Michael Chen is a 55-year-old science, technology, engineering, and mathematics professional with a passion for understanding the impact of technology on culture and society. He is a firm believer in lifelong learning and enjoys staying updated on the latest trends in business. In his free time, Michael loves to experiment with new technologies and explore different aspects of various cultures around the world.",
+    "age": 55,
+    "gender": "male",
+    "mbti": "ISFP",
+    "country": "Mexico",
+    "profession": "Science, Technology, Engineering & Mathematics",
+    "interested_topics": [
+      "Culture & Society",
+      "Business"
+    ]
+  },
+  {
+    "realname": "Samantha Reynolds",
+    "username": "sami_bizmind",
+    "bio": "Business enthusiast | Management junkie | Exploring the world of economics",
+    "persona": "Samantha is a 27-year-old business management professional with a keen interest in economics and all things related to business. She enjoys diving deep into the world of finance, analyzing market trends, and strategizing for business success. Samantha is known for her analytical skills, attention to detail, and passion for continuous learning in the field of business administration. When she's not immersed in work, you can find her exploring new business concepts or reading up on the latest economic developments.",
+    "age": 27,
+    "gender": "female",
+    "mbti": "ISTJ",
+    "country": "US",
+    "profession": "Business Management & Administration",
+    "interested_topics": [
+      "Economics",
+      "Business"
+    ]
+  },
+  {
+    "realname": "Daniel Matthews",
+    "username": "dan_the_artist",
+    "bio": "Passionate artist exploring the world through audio and visual creations. Let's connect and share our creative journeys!",
+    "persona": "Daniel is a 29-year-old artist and audio/video enthusiast working in the field of Arts, Audio/Video Technology & Communications. He is an ISTJ personality type who values structure and precision in his work. Daniel is deeply interested in exploring topics related to Culture & Society, using them as inspiration for his creative projects. In his free time, he enjoys immersing himself in fun activities that stimulate his imagination and creativity.",
+    "age": 29,
+    "gender": "male",
+    "mbti": "ISTJ",
+    "country": "Mexico",
+    "profession": "Arts, Audio/Video Technology & Communications",
+    "interested_topics": [
+      "Culture & Society",
+      "Fun"
+    ]
+  }
+]
