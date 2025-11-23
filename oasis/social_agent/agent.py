@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from oasis.social_agent import AgentGraph
 
 if "sphinx" not in sys.modules:
-    agent_log = logging.getLogger(name="social.agent")
+    agent_log = logging.getLogger(__name__)
     agent_log.setLevel("DEBUG")
 
     if not agent_log.handlers:
@@ -77,9 +77,23 @@ class SocialAgent(ChatAgent):
         else:
             system_message_content = self.user_info.to_custom_system_message(
                 user_info_template)
+        
+        # Handle multimodal content if image is provided
+        if self.user_info.system_image:
+            # Import image utilities
+            from oasis.utils.image_utils import prepare_multimodal_message
+            
+            # Create multimodal content with image
+            system_message_content = prepare_multimodal_message(
+                text_content=system_message_content,
+                image_source=self.user_info.system_image,
+                image_type=self.user_info.image_type
+            )
+            agent_log.info(f"Agent {agent_id}: Using multimodal system message with image")
+        
         system_message = BaseMessage.make_assistant_message(
             role_name="system",
-            content=system_message_content,  # system prompt
+            content=system_message_content,  # system prompt (text or multimodal list)
         )
 
         if not available_actions:
@@ -106,7 +120,6 @@ class SocialAgent(ChatAgent):
         super().__init__(
             system_message=system_message,
             model=model,
-            scheduling_strategy='random_model',
             tools=all_tools,
         )
         self.max_iteration = max_iteration
@@ -133,15 +146,22 @@ class SocialAgent(ChatAgent):
                 f"actions for example to just like the posts. "
                 f"Here is your social media environment: {env_prompt}"))
         try:
-            agent_log.info(
-                f"Agent {self.social_agent_id} observing environment: "
-                f"{env_prompt}")
+            # Log which agent is acting
+            agent_log.info(f"\n{'='*60}")
+            agent_log.info(f"🤖 AGENT {self.social_agent_id}: {self.user_info.user_name}")
+            agent_log.info(f"{'='*60}")
+            
             response = await self.astep(user_msg)
-            for tool_call in response.info['tool_calls']:
+            
+            # Log actions taken
+            tool_calls = response.info.get('tool_calls', [])
+            if tool_calls:
+                actions_summary = ', '.join([f"{tc.tool_name}({tc.args})" for tc in tool_calls])
+                agent_log.info(f"✅ Actions taken: {actions_summary}")
+            
+            for tool_call in tool_calls:
                 action_name = tool_call.tool_name
                 args = tool_call.args
-                agent_log.info(f"Agent {self.social_agent_id} performed "
-                               f"action: {action_name} with args: {args}")
                 if action_name not in ALL_SOCIAL_ACTIONS:
                     agent_log.info(
                         f"Agent {self.social_agent_id} get the result: "
