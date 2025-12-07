@@ -39,6 +39,11 @@ from oasis.social_platform.channel import Channel
 from oasis.social_platform.platform import Platform
 from oasis.social_platform.typing import ActionType
 
+from codesignbot.database import (
+    create_profile_table, create_friendship_tables, create_follow_request_table, create_question_tables,
+    create_chat_tables
+)
+
 social_log = logging.getLogger(name="social")
 social_log.propagate = False
 social_log.setLevel("DEBUG")
@@ -102,6 +107,14 @@ async def running(
         max_rec_post_len=2,
         following_post_count=3,
     )
+
+    # Add tables specific to codesignbot simulation
+    create_profile_table(infra.db, infra.db_cursor)
+    create_friendship_tables(infra.db, infra.db_cursor)
+    create_follow_request_table(infra.db, infra.db_cursor)
+    create_question_tables(infra.db, infra.db_cursor)
+    create_chat_tables(infra.db, infra.db_cursor)
+
     twitter_task = asyncio.create_task(infra.running())
     if inference_configs["model_type"][:3] == "gpt":
         model = ModelFactory.create(
