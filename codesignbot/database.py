@@ -1,7 +1,9 @@
 import os
 import sqlite3
 import json
-from typing import List
+from datetime import date
+import networkx as nx
+from typing import List, Dict, Optional, Tuple
 
 def get_schema_path() -> str:
     """Get the path to the codesignbot schema directory."""
@@ -9,6 +11,8 @@ def get_schema_path() -> str:
     schema_dir = os.path.join(curr_dir, 'schema')
     os.makedirs(schema_dir, exist_ok=True)
     return schema_dir
+
+# ==================== User Profile ========================
 
 def create_profile_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
     """Create the user_profile table in the database."""
@@ -103,7 +107,7 @@ def create_friendship_tables(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -
     
     conn.commit()
 
-
+# ==================== Friend Request ========================
 # Friend Request Functions
 
 def send_friend_request(cursor: sqlite3.Cursor, requester_id: int, 
@@ -182,7 +186,7 @@ def get_pending_friend_requests(cursor: sqlite3.Cursor, user_id: int) -> list:
         for row in cursor.fetchall()
     ]
 
-
+# ==================== Connection ========================
 # Connection Functions
 
 def get_friends(cursor: sqlite3.Cursor, user_id: int) -> list:
@@ -350,7 +354,8 @@ def set_interests(cursor: sqlite3.Cursor, user_id: int, interests: List[str]) ->
     
     return cursor.rowcount > 0
 
-# Follow Request Management Functions
+# ==================== Follow Request ========================
+# Follow Request Functions
 
 def create_follow_request_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
     """Create the follow_request table."""
@@ -554,6 +559,44 @@ def get_follow_request_status(cursor: sqlite3.Cursor, requester_id: int, request
     
     row = cursor.fetchone()
     return row[0] if row else None
+
+# ==================== Social Graph ====================
+
+def build_social_graph(cursor: sqlite3.Cursor) -> nx.DiGraph:
+    """
+    Build a NetworkX DiGraph from connection and follow tables.
+    
+    Edge weights represent connection "closeness":
+    - close_friend: weight 0 (closest)
+    - friend: weight 1
+    - follow: weight 2
+    """
+    G = nx.DiGraph()
+    
+    # Add all users as nodes
+    cursor.execute("SELECT user_id FROM user")
+    for (user_id,) in cursor.fetchall():
+        G.add_node(user_id)
+    
+    # Add connections (bidirectional friendships)
+    cursor.execute("""
+        SELECT user1_id, user2_id, user1_choice, user2_choice 
+        FROM connection
+    """)
+    for user1_id, user2_id, user1_choice, user2_choice in cursor.fetchall():
+        # Weight based on how the OTHER user categorized them
+        weight1 = 0 if user2_choice == 'close_friend' else 1
+        weight2 = 0 if user1_choice == 'close_friend' else 1
+        G.add_edge(user1_id, user2_id, weight=weight1)
+        G.add_edge(user2_id, user1_id, weight=weight2)
+    
+    # Add follow relationships (one-directional)
+    cursor.execute("SELECT follower_id, followee_id FROM follow")
+    for follower_id, followee_id in cursor.fetchall():
+        if not G.has_edge(follower_id, followee_id):
+            G.add_edge(follower_id, followee_id, weight=2)
+    
+    return G
 
 # ==================== Notifications ====================
 
@@ -1063,127 +1106,164 @@ def get_user_chat_rooms(cursor: sqlite3.Cursor, user_id: int) -> List[Dict]:
     
     return rooms
 
+# ==================== Notifications ========================
+
+def create_notification_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+    """Create the notification table."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notification (
+            notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient_id INTEGER NOT NULL,
+            sender_id INTEGER,
+            notification_type TEXT NOT NULL CHECK(notification_type IN (
+                'friend_request', 'friend_accepted', 'follow_request',
+                'like_reply', 'like_comment', 'like_response', 'like_note',
+                'emoji_reaction', 'comment', 'reply', 'mention',
+                'response_request', 'question_share', 'question_response', 'daily_question',
+                'ping', 'system'
+            )),
+            content_text TEXT NOT NULL,
+            emoji TEXT,
+            related_id INTEGER,
+            related_type TEXT,
+            redirect_url TEXT,
+            is_read BOOLEAN DEFAULT 0,
+            is_visible BOOLEAN DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (recipient_id) REFERENCES user(user_id),
+            FOREIGN KEY (sender_id) REFERENCES user(user_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_recipient ON notification(recipient_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_sender ON notification(sender_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_type ON notification(notification_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_read ON notification(is_read)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_visible ON notification(is_visible)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_updated ON notification(updated_at)")
+    conn.commit()
+
 
 # ==================== Message Management ====================
 
-def send_message(cursor: sqlite3.Cursor, conn: sqlite3.Connection,
-                room_id: int, sender_id: int, content: str,
-                parent_id: int = None) -> int:
-    """
-    Send a message in a chat room.
+# def send_message(cursor: sqlite3.Cursor, conn: sqlite3.Connection,
+#                 room_id: int, sender_id: int, content: str,
+#                 parent_id: int = None) -> int:
+#     """
+#     Send a message in a chat room.
     
-    Returns:
-        int: message_id
-    """
-    # Insert message
-    cursor.execute("""
-        INSERT INTO message (room_id, sender_id, content, parent_id)
-        VALUES (?, ?, ?, ?)
-    """, (room_id, sender_id, content, parent_id))
+#     Returns:
+#         int: message_id
+#     """
+#     # Insert message
+#     cursor.execute("""
+#         INSERT INTO message (room_id, sender_id, content, parent_id)
+#         VALUES (?, ?, ?, ?)
+#     """, (room_id, sender_id, content, parent_id))
     
-    message_id = cursor.lastrowid
+#     message_id = cursor.lastrowid
     
-    # Update room's last activity time
-    cursor.execute("""
-        UPDATE chat_room
-        SET updated_at = CURRENT_TIMESTAMP
-        WHERE room_id = ?
-    """, (room_id,))
+#     # Update room's last activity time
+#     cursor.execute("""
+#         UPDATE chat_room
+#         SET updated_at = CURRENT_TIMESTAMP
+#         WHERE room_id = ?
+#     """, (room_id,))
     
-    conn.commit()
-    return message_id
+#     conn.commit()
+#     return message_id
 
 
-def get_room_messages(cursor: sqlite3.Cursor, room_id: int, 
-                     limit: int = 50, offset: int = 0) -> List[Dict]:
-    """Get messages from a chat room (paginated)."""
-    cursor.execute("""
-        SELECT m.message_id, m.sender_id, m.content, m.parent_id, m.sent_at,
-               u.user_name as sender_name
-        FROM message m
-        JOIN user u ON m.sender_id = u.user_id
-        WHERE m.room_id = ?
-        ORDER BY m.sent_at DESC
-        LIMIT ? OFFSET ?
-    """, (room_id, limit, offset))
+# def get_room_messages(cursor: sqlite3.Cursor, room_id: int, 
+#                      limit: int = 50, offset: int = 0) -> List[Dict]:
+#     """Get messages from a chat room (paginated)."""
+#     cursor.execute("""
+#         SELECT m.message_id, m.sender_id, m.content, m.parent_id, m.sent_at,
+#                u.user_name as sender_name
+#         FROM message m
+#         JOIN user u ON m.sender_id = u.user_id
+#         WHERE m.room_id = ?
+#         ORDER BY m.sent_at DESC
+#         LIMIT ? OFFSET ?
+#     """, (room_id, limit, offset))
     
-    messages = []
-    for row in cursor.fetchall():
-        messages.append({
-            'message_id': row[0],
-            'sender_id': row[1],
-            'content': row[2],
-            'parent_id': row[3],
-            'sent_at': row[4],
-            'sender_name': row[5]
-        })
+#     messages = []
+#     for row in cursor.fetchall():
+#         messages.append({
+#             'message_id': row[0],
+#             'sender_id': row[1],
+#             'content': row[2],
+#             'parent_id': row[3],
+#             'sent_at': row[4],
+#             'sender_name': row[5]
+#         })
     
-    return list(reversed(messages))  # Return in chronological order
+#     return list(reversed(messages))  # Return in chronological order
 
 
-def mark_messages_read(cursor: sqlite3.Cursor, conn: sqlite3.Connection,
-                      room_id: int, user_id: int) -> bool:
-    """Mark all messages in a room as read by updating last_read_message_id."""
-    # Get the latest message in the room
-    cursor.execute("""
-        SELECT message_id
-        FROM message
-        WHERE room_id = ?
-        ORDER BY sent_at DESC
-        LIMIT 1
-    """, (room_id,))
+# def mark_messages_read(cursor: sqlite3.Cursor, conn: sqlite3.Connection,
+#                       room_id: int, user_id: int) -> bool:
+#     """Mark all messages in a room as read by updating last_read_message_id."""
+#     # Get the latest message in the room
+#     cursor.execute("""
+#         SELECT message_id
+#         FROM message
+#         WHERE room_id = ?
+#         ORDER BY sent_at DESC
+#         LIMIT 1
+#     """, (room_id,))
     
-    result = cursor.fetchone()
-    if not result:
-        return False
+#     result = cursor.fetchone()
+#     if not result:
+#         return False
     
-    last_message_id = result[0]
+#     last_message_id = result[0]
     
-    # Update participant's last read message
-    cursor.execute("""
-        UPDATE chat_participant
-        SET last_read_message_id = ?
-        WHERE room_id = ? AND user_id = ?
-    """, (last_message_id, room_id, user_id))
+#     # Update participant's last read message
+#     cursor.execute("""
+#         UPDATE chat_participant
+#         SET last_read_message_id = ?
+#         WHERE room_id = ? AND user_id = ?
+#     """, (last_message_id, room_id, user_id))
     
-    conn.commit()
-    return cursor.rowcount > 0
+#     conn.commit()
+#     return cursor.rowcount > 0
 
 
-def get_unread_count(cursor: sqlite3.Cursor, room_id: int, user_id: int) -> int:
-    """Get unread message count for a user in a room."""
-    cursor.execute("""
-        SELECT cp.last_read_message_id
-        FROM chat_participant cp
-        WHERE cp.room_id = ? AND cp.user_id = ?
-    """, (room_id, user_id))
+# def get_unread_count(cursor: sqlite3.Cursor, room_id: int, user_id: int) -> int:
+#     """Get unread message count for a user in a room."""
+#     cursor.execute("""
+#         SELECT cp.last_read_message_id
+#         FROM chat_participant cp
+#         WHERE cp.room_id = ? AND cp.user_id = ?
+#     """, (room_id, user_id))
     
-    result = cursor.fetchone()
-    last_read_id = result[0] if result and result[0] else 0
+#     result = cursor.fetchone()
+#     last_read_id = result[0] if result and result[0] else 0
     
-    # Count messages after last read
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM message
-        WHERE room_id = ? AND message_id > ? AND sender_id != ?
-    """, (room_id, last_read_id, user_id))
+#     # Count messages after last read
+#     cursor.execute("""
+#         SELECT COUNT(*)
+#         FROM message
+#         WHERE room_id = ? AND message_id > ? AND sender_id != ?
+#     """, (room_id, last_read_id, user_id))
     
-    return cursor.fetchone()[0]
+#     return cursor.fetchone()[0]
 
 
-def get_total_unread_count(cursor: sqlite3.Cursor, user_id: int) -> int:
-    """Get total unread message count across all rooms."""
-    cursor.execute("""
-        SELECT SUM(
-            (SELECT COUNT(*) 
-             FROM message m 
-             WHERE m.room_id = cp.room_id 
-             AND m.message_id > COALESCE(cp.last_read_message_id, 0)
-             AND m.sender_id != cp.user_id)
-        )
-        FROM chat_participant cp
-        WHERE cp.user_id = ?
-    """, (user_id,))
+# def get_total_unread_count(cursor: sqlite3.Cursor, user_id: int) -> int:
+#     """Get total unread message count across all rooms."""
+#     cursor.execute("""
+#         SELECT SUM(
+#             (SELECT COUNT(*) 
+#              FROM message m 
+#              WHERE m.room_id = cp.room_id 
+#              AND m.message_id > COALESCE(cp.last_read_message_id, 0)
+#              AND m.sender_id != cp.user_id)
+#         )
+#         FROM chat_participant cp
+#         WHERE cp.user_id = ?
+#     """, (user_id,))
     
-    result = cursor.fetchone()[0]
-    return result if result else 0
+#     result = cursor.fetchone()[0]
+#     return result if result else 0

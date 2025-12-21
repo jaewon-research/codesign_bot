@@ -83,6 +83,12 @@ async def generate_agents(
         profile["other_info"]["user_profile"] = agent_info["user_char"][
             agent_id]
 
+        # load activity threshold if available
+        if "activity_level_frequency" in agent_info.columns:
+            activity = ast.literal_eval(agent_info["activity_level_frequency"][agent_id])
+            # Convert 0-100 scale to 0-1 probability
+            profile["other_info"]["active_threshold"] = [v / 100.0 for v in activity]
+
         user_info = UserInfo(
             name=agent_info["username"][agent_id],
             description=agent_info["description"][agent_id],

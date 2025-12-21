@@ -1,0 +1,21 @@
+---
+data:
+  db_path: data/db/codesignbot.db          # Where to store the database (or use ":memory:" for in-memory)
+  csv_path: data/agents.csv  # Path to agent data
+
+simulation:
+  num_timesteps: 10                        # How many timesteps to run
+  clock_factor: 60                         # Time magnification factor
+  recsys_type: twhin-bert                  # Recommendation system type
+  available_actions:                       # Actions agents can take
+    - do_nothing
+    - repost
+    - like_post
+    - create_post
+    - follow
+    - create_comment
+    - like_comment
+
+inference:
+  model_type: gpt-4o-mini                  # OpenAI model to use
+  is_openai_model: true                    # Whether it's an OpenAI model

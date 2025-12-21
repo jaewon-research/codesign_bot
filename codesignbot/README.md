@@ -9,6 +9,12 @@ We create a simulated social graph for the agents using the Barabási-Albert mod
 # TODO
 Create a list of simulated agent profiles that will be used to inform agent behaviors during the simulation
 
+- Add a table to store user profiles
+    - interests (JSON array of interests e.g. ["#technology", "#science", "#art"])
+    - update interests
+- Add a table for friends
+- Add a table for close friends
+
 
 # Simulation Variables
 - Duration: Two weeks
