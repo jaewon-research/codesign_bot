@@ -1,12 +1,17 @@
+import sqlite3
+from oasis.social_platform import Channel
 from oasis.social_platform.platform import Platform
-from .database import (
+from actions import CodesignActionType
+from database import (
     send_friend_request, accept_friend_request, reject_friend_request, submit_question_response, 
-    share_question_with_friend, create_note, like_note, create_comment, like_comment, get_user_notifications, 
-    mark_notification_read, create_notification
+    share_question_with_friend, create_note as create_note_db, like_note as like_note_db, get_note_owner, 
+    create_comment as create_comment_db, like_comment as like_comment_db, get_user_notifications, get_comment_owner, 
+    get_post_owner, mark_notification_read, create_notification
 )
 
 class CodesignPlatform(Platform):
     """Extended Platform with codesign-specific action handlers."""
+ 
     async def running(self):
         """Main loop - handles only CodesignActionType actions."""
         while True:
@@ -27,16 +32,7 @@ class CodesignPlatform(Platform):
             action_function = getattr(self, action, None)
             if action_function:
                 try:
-                    func_code = action_function.__code__
-                    param_count = func_code.co_argcount
-                    
-                    if param_count == 1:  # just self
-                        result = await action_function()
-                    elif param_count == 2:  # self, agent_id
-                        result = await action_function(agent_id)
-                    else:  # self, agent_id, message
-                        result = await action_function(agent_id, message)
-                    
+                    result = await self._call_action(action_function, agent_id, message)
                     await self.channel.send_to((message_id, agent_id, result))
                 except Exception as e:
                     await self.channel.send_to((message_id, agent_id, {
@@ -49,7 +45,19 @@ class CodesignPlatform(Platform):
                     "error": f"Unknown action: {action}"
                 }))
 
-     # ==================== System Actions ====================
+    async def _call_action(self, action_function, agent_id, message):
+        """Call the action function with the appropriate parameters."""
+        func_code = action_function.__code__
+        param_count = func_code.co_argcount
+
+        if param_count == 1: # just self
+            return await action_function()
+        elif param_count == 2: # self, agent_id
+            return await action_function(agent_id)
+        else: # self, agent_id, message
+            return await action_function(agent_id, message)
+
+    # ==================== System Actions ====================
     
     async def do_nothing(self, agent_id):
         """Handle do_nothing action."""
@@ -168,12 +176,12 @@ class CodesignPlatform(Platform):
         """
         content, visibility = message
         try:
-            # TODO: Add create_note to database.py
-            self.db_cursor.execute("""
-                INSERT INTO note (user_id, content, visibility)
-                VALUES (?, ?, ?)
-            """, (agent_id, content, visibility))
-            note_id = self.db_cursor.lastrowid
+            note_id = create_note_db(
+                self.db_cursor,
+                user_id=agent_id,
+                content=content,
+                visibility=visibility
+            )
             self.db.commit()
             return {"success": True, "note_id": note_id}
         except Exception as e:
@@ -188,19 +196,15 @@ class CodesignPlatform(Platform):
         """
         note_id = message
         try:
-            # TODO: Add like_note to database.py
-            self.db_cursor.execute("""
-                INSERT INTO note_like (user_id, note_id)
-                VALUES (?, ?)
-            """, (agent_id, note_id))
-            like_id = self.db_cursor.lastrowid
+            like_id = like_note_db(
+                self.db_cursor,
+                user_id=agent_id,
+                note_id=note_id
+            )
             self.db.commit()
             
             # Notify note owner
-            self.db_cursor.execute(
-                "SELECT user_id FROM note WHERE note_id = ?", (note_id,)
-            )
-            note_owner = self.db_cursor.fetchone()
+            note_owner = get_note_owner(self.db_cursor, note_id)
             if note_owner and note_owner[0] != agent_id:
                 create_notification(
                     self.db_cursor,
@@ -227,18 +231,16 @@ class CodesignPlatform(Platform):
         """
         post_id, content = message
         try:
-            self.db_cursor.execute("""
-                INSERT INTO comment (user_id, post_id, content, created_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            """, (agent_id, post_id, content))
-            comment_id = self.db_cursor.lastrowid
+            comment_id = create_comment_db(
+                self.db_cursor,
+                user_id=agent_id,
+                post_id=post_id,
+                content=content
+            )
             self.db.commit()
             
             # Notify post owner
-            self.db_cursor.execute(
-                "SELECT user_id FROM post WHERE post_id = ?", (post_id,)
-            )
-            post_owner = self.db_cursor.fetchone()
+            post_owner = get_post_owner(self.db_cursor, post_id)
             if post_owner and post_owner[0] != agent_id:
                 create_notification(
                     self.db_cursor,
@@ -263,18 +265,15 @@ class CodesignPlatform(Platform):
         """
         comment_id = message
         try:
-            self.db_cursor.execute("""
-                INSERT INTO comment_like (user_id, comment_id)
-                VALUES (?, ?)
-            """, (agent_id, comment_id))
-            like_id = self.db_cursor.lastrowid
+            like_id = like_comment_db(
+                self.db_cursor,
+                user_id=agent_id,
+                comment_id=comment_id
+            )
             self.db.commit()
             
             # Notify comment owner
-            self.db_cursor.execute(
-                "SELECT user_id FROM comment WHERE comment_id = ?", (comment_id,)
-            )
-            comment_owner = self.db_cursor.fetchone()
+            comment_owner = get_comment_owner(self.db_cursor, comment_id)
             if comment_owner and comment_owner[0] != agent_id:
                 create_notification(
                     self.db_cursor,

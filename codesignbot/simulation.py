@@ -18,9 +18,9 @@ import argparse
 import asyncio
 import logging
 import os
+import sqlite3
 import random
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,8 @@ sys.path.append(
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType, ModelType
 
+from codesign_platform import CodesignPlatform
+
 from oasis.clock.clock import Clock
 from oasis.social_agent.agents_generator import generate_agents
 from oasis.social_platform.channel import Channel
@@ -40,14 +42,18 @@ from oasis.social_platform.platform import Platform
 from oasis.social_platform.typing import ActionType
 
 from database import (
-    create_profile_table, create_friendship_tables, create_follow_request_table, create_question_tables,
-    create_notification_table
+    create_note_tables,
+    create_profile_table,
+    create_friendship_tables,
+    create_follow_request_table,
+    create_notification_table,
 )
 from recsys import update_rec_table_filtered
 from dotenv import load_dotenv
 
 load_dotenv()  # Load variables from .env file
 
+# Log setup
 social_log = logging.getLogger(name="social")
 social_log.propagate = False
 social_log.setLevel("DEBUG")
@@ -91,16 +97,32 @@ async def running(
     if inference_configs is None:
         raise ValueError("inference_configs is required. Please provide a config file with --config_path")
 
+    # Set up database
     db_path = DEFAULT_DB_PATH if db_path is None else db_path
     csv_path = DEFAULT_CSV_PATH if csv_path is None else csv_path
     if os.path.exists(db_path):
         os.remove(db_path)
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+    # Create database connection
+    db = sqlite3.connect(db_path)
+    db_cursor = db.cursor()
+
+    # Add tables specific to codesignbot simulation
+    create_note_tables(db, db_cursor)
+    create_profile_table(db, db_cursor)
+    create_friendship_tables(db, db_cursor)
+    create_follow_request_table(db, db_cursor)
+    create_notification_table(db, db_cursor)
+    # create_question_tables(db, db_cursor)
+    # create_chat_tables(db, db_cursor)
+
+    # Set up infrastructure
     start_time = 0
     clock = Clock(k=clock_factor)
     channel = Channel()
-    infra = Platform(
+
+    platform = CodesignPlatform(
         db_path=db_path,
         channel=channel,
         sandbox_clock=clock,
@@ -111,37 +133,15 @@ async def running(
         following_post_count=3,
     )
 
-    # Add tables specific to codesignbot simulation
-    create_profile_table(infra.db, infra.db_cursor)
-    create_friendship_tables(infra.db, infra.db_cursor)
-    create_follow_request_table(infra.db, infra.db_cursor)
-    create_question_tables(infra.db, infra.db_cursor)
-    create_notification_table(infra.db, infra.db_cursor)
-    # create_chat_tables(infra.db, infra.db_cursor)
+    # Start simulation event loop
+    simulation_task = asyncio.create_task(platform.running())
 
-    simulation_task = asyncio.create_task(infra.running())
+    # Set up LLM model
     if inference_configs["model_type"][:3] == "gpt":
         model = ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=ModelType(inference_configs["model_type"]),
         )
-
-    try:
-        all_topic_df = pd.read_csv("data/twitter_dataset/all_topics.csv")
-        if "False" in csv_path or "True" in csv_path:
-            if "-" not in csv_path:
-                topic_name = csv_path.split("/")[-1].split(".")[0]
-            else:
-                topic_name = csv_path.split("/")[-1].split(".")[0].split(
-                    "-")[0]
-            source_post_time = (
-                all_topic_df[all_topic_df["topic_name"] ==
-                             topic_name]["start_time"].item().split(" ")[1])
-            start_hour = int(source_post_time.split(":")[0]) + float(
-                int(source_post_time.split(":")[1]) / 60)
-    except Exception:
-        social_log.info("No real-world data, let start_hour be 1PM")
-        start_hour = 13
 
     agent_graph = await generate_agents(agent_info_path=csv_path,
                                         channel=channel,
@@ -149,9 +149,13 @@ async def running(
                                         model=model,
                                         recsys_type=recsys_type,
                                         available_actions=available_actions,
-                                        twitter=infra)
+                                        twitter=platform)
     # agent_graph.visualize("initial_social_graph.png")
 
+    # Simulation starts at 1PM
+    start_hour = 13
+
+    # Main simulation loop
     for timestep in range(1, num_timesteps + 1):
         clock.time_step = timestep * 3
         db_file = db_path.split("/")[-1]
@@ -159,7 +163,7 @@ async def running(
 
         # Custom twitter-style recsys with connection degree filtering
         await update_rec_table_filtered(
-            infra,
+            platform,
             max_connection_degree=3,
             current_time=clock.time_step,
         )

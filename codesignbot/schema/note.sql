@@ -27,6 +27,20 @@ CREATE TABLE IF NOT EXISTS note_reader (
 
 CREATE INDEX IF NOT EXISTS idx_note_reader_user ON note_reader(user_id);
 
+-- Track who has liked each note
+CREATE TABLE IF NOT EXISTS note_like (
+    like_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    note_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, note_id),
+    FOREIGN KEY (user_id) REFERENCES user(user_id),
+    FOREIGN KEY (note_id) REFERENCES note(note_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_note_like_note ON note_like(note_id);
+CREATE INDEX IF NOT EXISTS idx_note_like_user ON note_like(user_id);
+
 -- Optional: Support for images attached to notes
 CREATE TABLE IF NOT EXISTS note_image (
     image_id INTEGER PRIMARY KEY AUTOINCREMENT,

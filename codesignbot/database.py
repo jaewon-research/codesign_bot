@@ -12,6 +12,143 @@ def get_schema_path() -> str:
     os.makedirs(schema_dir, exist_ok=True)
     return schema_dir
 
+
+# ==================== Notes ========================
+
+def create_note_tables(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+    """Create the note, note_reader, note_like, and note_image tables."""
+    schema_dir = get_schema_path()
+    note_sql_path = os.path.join(schema_dir, 'note.sql')
+    
+    if os.path.exists(note_sql_path):
+        with open(note_sql_path, 'r') as sql_file:
+            cursor.executescript(sql_file.read())
+        conn.commit()
+        print("✓ Created note tables")
+    else:
+        print(f"⚠️  Schema file not found: {note_sql_path}")
+
+def create_note(cursor: sqlite3.Cursor, user_id: int, content: str, 
+                visibility: str = 'friends') -> int:
+    """Create a new note.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The user creating the note
+        content: Note content
+        visibility: 'friends' or 'close_friends'
+    
+    Returns:
+        note_id of the created note
+    """
+    cursor.execute("""
+        INSERT INTO note (user_id, content, visibility)
+        VALUES (?, ?, ?)
+    """, (user_id, content, visibility))
+    return cursor.lastrowid
+
+
+def like_note(cursor: sqlite3.Cursor, user_id: int, note_id: int) -> int:
+    """Like a note.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The user liking
+        note_id: The note to like
+    
+    Returns:
+        like_id of the created like
+    """
+    cursor.execute("""
+        INSERT INTO note_like (user_id, note_id)
+        VALUES (?, ?)
+    """, (user_id, note_id))
+    return cursor.lastrowid
+
+
+def get_note_owner(cursor: sqlite3.Cursor, note_id: int) -> Optional[int]:
+    """Get the owner of a note.
+    
+    Args:
+        cursor: Database cursor
+        note_id: The note ID
+    
+    Returns:
+        user_id of the note owner, or None if not found
+    """
+    cursor.execute("SELECT user_id FROM note WHERE note_id = ?", (note_id,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+# ==================== Comment Functions ====================
+
+def create_comment(cursor: sqlite3.Cursor, user_id: int, post_id: int, 
+                   content: str) -> int:
+    """Create a comment on a post.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The user commenting
+        post_id: The post to comment on
+        content: Comment content
+    
+    Returns:
+        comment_id of the created comment
+    """
+    cursor.execute("""
+        INSERT INTO comment (user_id, post_id, content, created_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    """, (user_id, post_id, content))
+    return cursor.lastrowid
+
+
+def like_comment(cursor: sqlite3.Cursor, user_id: int, comment_id: int) -> int:
+    """Like a comment.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The user liking
+        comment_id: The comment to like
+    
+    Returns:
+        like_id of the created like
+    """
+    cursor.execute("""
+        INSERT INTO comment_like (user_id, comment_id)
+        VALUES (?, ?)
+    """, (user_id, comment_id))
+    return cursor.lastrowid
+
+
+def get_post_owner(cursor: sqlite3.Cursor, post_id: int) -> Optional[int]:
+    """Get the owner of a post.
+    
+    Args:
+        cursor: Database cursor
+        post_id: The post ID
+    
+    Returns:
+        user_id of the post owner, or None if not found
+    """
+    cursor.execute("SELECT user_id FROM post WHERE post_id = ?", (post_id,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def get_comment_owner(cursor: sqlite3.Cursor, comment_id: int) -> Optional[int]:
+    """Get the owner of a comment.
+    
+    Args:
+        cursor: Database cursor
+        comment_id: The comment ID
+    
+    Returns:
+        user_id of the comment owner, or None if not found
+    """
+    cursor.execute("SELECT user_id FROM comment WHERE comment_id = ?", (comment_id,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
 # ==================== User Profile ========================
 
 def create_profile_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
