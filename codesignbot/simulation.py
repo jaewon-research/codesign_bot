@@ -79,10 +79,19 @@ parser.add_argument(
     required=False,
     default=DEFAULT_CONFIG_PATH,
 )
+parser.add_argument(
+    "--test",
+    action="store_true",
+    help="Run in test mode with 16 agents for 5 timesteps.",
+)
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+print(f"DATA_DIR: {DATA_DIR}")
 DEFAULT_DB_PATH = ":memory:"
 DEFAULT_CSV_PATH = os.path.join(DATA_DIR, "agents.csv")
+TEST_CSV_PATH = os.path.join(DATA_DIR, "agents_test.csv")
+print(f"TEST_CSV_PATH: {TEST_CSV_PATH}")
+TEST_TIMESTEPS = 5
 
 
 async def running(
@@ -174,8 +183,10 @@ async def running(
         for node_id, agent in agent_graph.get_agents():
             if agent.user_info.is_controllable is False:
                 agent_ac_prob = random.random()
-                threshold = agent.user_info.profile["other_info"][
-                    "active_threshold"][int(simulation_time_hour % 24)]
+
+                other_info = agent.user_info.profile.get("other_info", {})
+                active_threshold = other_info.get("active_threshold", [1.0] * 24)
+                threshold = active_threshold[int(simulation_time_hour % 24)]
                 if agent_ac_prob < threshold:
                     tasks.append(agent.perform_action_by_llm())
             else:
@@ -197,6 +208,11 @@ if __name__ == "__main__":
         data_params = cfg.get("data")
         simulation_params = cfg.get("simulation")
         inference_configs = cfg.get("inference")
+
+        if args.test:
+            data_params["csv_path"] = TEST_CSV_PATH
+            simulation_params["num_timesteps"] = TEST_TIMESTEPS
+            print(f"🧪 Running in TEST MODE: {TEST_TIMESTEPS} timesteps, using {TEST_CSV_PATH}")
 
         asyncio.run(
             running(**data_params,

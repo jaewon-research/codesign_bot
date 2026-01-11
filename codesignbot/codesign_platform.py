@@ -29,7 +29,9 @@ class CodesignPlatform(Platform):
                 break
             
             # Find and call the handler method
-            action_function = getattr(self, action, None)
+            # Convert ActionType enum to string if needed
+            action_name = action.value if hasattr(action, 'value') else str(action)
+            action_function = getattr(self, action_name, None)
             if action_function:
                 try:
                     result = await self._call_action(action_function, agent_id, message)
