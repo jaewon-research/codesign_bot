@@ -6,12 +6,22 @@ from database import (
     send_friend_request, accept_friend_request, reject_friend_request, submit_question_response, 
     share_question_with_friend, create_note as create_note_db, like_note as like_note_db, get_note_owner, 
     create_comment as create_comment_db, like_comment as like_comment_db, get_user_notifications, get_comment_owner, 
-    get_post_owner, mark_notification_read, create_notification
+    get_post_owner, mark_notification_read, create_notification, create_note_comment as create_note_comment_db
 )
 
 class CodesignPlatform(Platform):
     """Extended Platform with codesign-specific action handlers."""
+    
+    def _get_username(self, user_id):
+        """Get username for logging purposes."""
+        try:
+            self.db_cursor.execute("SELECT user_name FROM user WHERE user_id = ?", (user_id,))
+            result = self.db_cursor.fetchone()
+            return result[0] if result else f"User#{user_id}"
+        except:
+            return f"User#{user_id}"
  
+    # ==================== Main Simulation Loop ====================
     async def running(self):
         """Main loop - handles only CodesignActionType actions."""
         while True:
@@ -59,6 +69,65 @@ class CodesignPlatform(Platform):
         else: # self, agent_id, message
             return await action_function(agent_id, message)
 
+    # ==================== Refresh Recommended Posts ====================
+    async def refresh(self, agent_id: int):
+        """Override refresh to show notes instead of posts."""
+        try:
+            user_id = agent_id
+            
+            # Get notes visible to this agent based on connections
+            # Include notes from friends and close friends
+            note_query = """
+                SELECT n.note_id, n.user_id, n.content, n.created_at, n.visibility,
+                    (SELECT COUNT(*) FROM note_like WHERE note_id = n.note_id) as num_likes
+                FROM note n
+                WHERE n.user_id IN (
+                    SELECT user2_id FROM connection WHERE user1_id = ?
+                    UNION
+                    SELECT user1_id FROM connection WHERE user2_id = ?
+                )
+                OR n.user_id = ?
+                OR n.user_id = 0  -- Always include human user's notes
+                ORDER BY n.created_at DESC
+                LIMIT 10
+            """
+            self.db_cursor.execute(note_query, (user_id, user_id, user_id))
+            notes = self.db_cursor.fetchall()
+            
+            results = []
+            for note in notes:
+                note_id, note_user_id, content, created_at, visibility, num_likes = note
+                
+                # Get comments for this note
+                comments = []
+                try:
+                    self.db_cursor.execute("""
+                        SELECT nc.comment_id, nc.user_id, nc.content, nc.created_at
+                        FROM note_comment nc
+                        WHERE nc.note_id = ?
+                        ORDER BY nc.created_at ASC
+                    """, (note_id,))
+                    comments = [{"comment_id": c[0], "user_id": c[1], "content": c[2], "created_at": c[3]} 
+                            for c in self.db_cursor.fetchall()]
+                except:
+                    pass
+                
+                results.append({
+                    "post_id": note_id,  # Keep as post_id for compatibility with agent prompts
+                    "user_id": note_user_id,
+                    "content": content,
+                    "created_at": created_at,
+                    "num_likes": num_likes,
+                    "num_dislikes": 0,
+                    "num_shares": 0,
+                    "num_reports": 0,
+                    "comments": comments
+                })
+            
+            return {"success": True, "posts": results}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     # ==================== System Actions ====================
     
     async def do_nothing(self, agent_id):
@@ -83,6 +152,9 @@ class CodesignPlatform(Platform):
                 requester_choice=friendship_level
             )
             self.db.commit()
+            username = self._get_username(agent_id)
+            target_name = self._get_username(target_user_id)
+            print(f"🤝 [{username}] sent friend request to {target_name} (level: {friendship_level})", flush=True)
             return {"success": True, "request_id": request_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -102,6 +174,8 @@ class CodesignPlatform(Platform):
                 requestee_choice=friendship_level
             )
             self.db.commit()
+            username = self._get_username(agent_id)
+            print(f"✅ [{username}] accepted friend request #{request_id} (level: {friendship_level})", flush=True)
             return {"success": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -117,6 +191,8 @@ class CodesignPlatform(Platform):
         try:
             result = reject_friend_request(self.db_cursor, request_id)
             self.db.commit()
+            username = self._get_username(agent_id)
+            print(f"❌ [{username}] rejected friend request #{request_id}", flush=True)
             return {"success": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -139,6 +215,9 @@ class CodesignPlatform(Platform):
                 daily_question_id=question_id,
                 response_text=response_text
             )
+            username = self._get_username(agent_id)
+            preview = response_text[:40] + "..." if len(response_text) > 40 else response_text
+            print(f"❓ [{username}] answered question #{question_id}: \"{preview}\"", flush=True)
             return {"success": True, "response_id": response_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -159,6 +238,9 @@ class CodesignPlatform(Platform):
                 daily_question_id=question_id
             )
             self.db.commit()
+            username = self._get_username(agent_id)
+            recipient_name = self._get_username(recipient_id)
+            print(f"📤 [{username}] shared question #{question_id} with {recipient_name}", flush=True)
             return {
                 "success": True, 
                 "share_id": share_id,
@@ -178,13 +260,20 @@ class CodesignPlatform(Platform):
         """
         content, visibility = message
         try:
+            # Get current simulation timestep
+            current_time = self.sandbox_clock.get_time_step()
+            
             note_id = create_note_db(
                 self.db_cursor,
                 user_id=agent_id,
                 content=content,
-                visibility=visibility
+                visibility=visibility,
+                created_at=current_time
             )
             self.db.commit()
+            username = self._get_username(agent_id)
+            preview = content[:60] + "..." if len(content) > 60 else content
+            print(f"📝 [{username}] created note #{note_id} (t={current_time}): \"{preview}\"", flush=True)
             return {"success": True, "note_id": note_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -218,7 +307,51 @@ class CodesignPlatform(Platform):
                 )
                 self.db.commit()
             
+            username = self._get_username(agent_id)
+            owner_name = self._get_username(note_owner[0]) if note_owner else "unknown"
+            print(f"❤️  [{username}] liked note #{note_id} by {owner_name}", flush=True)
             return {"success": True, "like_id": like_id}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def comment_on_note(self, agent_id, message):
+        """Handle comment_on_note action.
+        
+        Args:
+            agent_id: The user commenting
+            message: (note_id, content)
+        """
+        note_id, content = message
+        try:
+            # Get current simulation timestep
+            current_time = self.sandbox_clock.get_time_step()
+            
+            comment_id = create_note_comment_db(
+                self.db_cursor,
+                user_id=agent_id,
+                note_id=note_id,
+                content=content,
+                created_at=current_time
+            )
+            self.db.commit()
+            
+            # Notify note owner
+            note_owner = get_note_owner(self.db_cursor, note_id)
+            if note_owner and note_owner != agent_id:
+                create_notification(
+                    self.db_cursor,
+                    recipient_id=note_owner,
+                    sender_id=agent_id,
+                    notification_type='note_comment',
+                    content_text=content[:100],  # Truncate for notification
+                    related_id=comment_id
+                )
+                self.db.commit()
+            
+            username = self._get_username(agent_id)
+            preview = content[:50] + "..." if len(content) > 50 else content
+            print(f"💬 [{username}] commented on note #{note_id} (t={current_time}): \"{preview}\"", flush=True)
+            return {"success": True, "comment_id": comment_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
     
@@ -254,6 +387,9 @@ class CodesignPlatform(Platform):
                 )
                 self.db.commit()
             
+            username = self._get_username(agent_id)
+            preview = content[:50] + "..." if len(content) > 50 else content
+            print(f"💬 [{username}] commented on post #{post_id}: \"{preview}\"", flush=True)
             return {"success": True, "comment_id": comment_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -287,6 +423,8 @@ class CodesignPlatform(Platform):
                 )
                 self.db.commit()
             
+            username = self._get_username(agent_id)
+            print(f"❤️  [{username}] liked comment #{comment_id}", flush=True)
             return {"success": True, "like_id": like_id}
         except Exception as e:
             return {"success": False, "error": str(e)}

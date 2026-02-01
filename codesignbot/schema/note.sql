@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS note_like (
 CREATE INDEX IF NOT EXISTS idx_note_like_note ON note_like(note_id);
 CREATE INDEX IF NOT EXISTS idx_note_like_user ON note_like(user_id);
 
+-- Comments on notes
+CREATE TABLE IF NOT EXISTS note_comment (
+    comment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (note_id) REFERENCES note(note_id),
+    FOREIGN KEY (user_id) REFERENCES user(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_note_comment_note ON note_comment(note_id);
+CREATE INDEX IF NOT EXISTS idx_note_comment_user ON note_comment(user_id);
+
 -- Optional: Support for images attached to notes
 CREATE TABLE IF NOT EXISTS note_image (
     image_id INTEGER PRIMARY KEY AUTOINCREMENT,

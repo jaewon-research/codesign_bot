@@ -29,7 +29,7 @@ def create_note_tables(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None
         print(f"⚠️  Schema file not found: {note_sql_path}")
 
 def create_note(cursor: sqlite3.Cursor, user_id: int, content: str, 
-                visibility: str = 'friends') -> int:
+                visibility: str = 'friends', created_at: int = None) -> int:
     """Create a new note.
     
     Args:
@@ -37,14 +37,21 @@ def create_note(cursor: sqlite3.Cursor, user_id: int, content: str,
         user_id: The user creating the note
         content: Note content
         visibility: 'friends' or 'close_friends'
+        created_at: Optional simulation timestep (integer)
     
     Returns:
         note_id of the created note
     """
-    cursor.execute("""
-        INSERT INTO note (user_id, content, visibility)
-        VALUES (?, ?, ?)
-    """, (user_id, content, visibility))
+    if created_at is not None:
+        cursor.execute("""
+            INSERT INTO note (user_id, content, visibility, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, content, visibility, created_at))
+    else:
+        cursor.execute("""
+            INSERT INTO note (user_id, content, visibility)
+            VALUES (?, ?, ?)
+        """, (user_id, content, visibility))
     return cursor.lastrowid
 
 
@@ -79,6 +86,66 @@ def get_note_owner(cursor: sqlite3.Cursor, note_id: int) -> Optional[int]:
     cursor.execute("SELECT user_id FROM note WHERE note_id = ?", (note_id,))
     row = cursor.fetchone()
     return row[0] if row else None
+
+
+def create_note_comment(cursor: sqlite3.Cursor, user_id: int, note_id: int,
+                        content: str, created_at: int = None) -> int:
+    """Create a comment on a note.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The user commenting
+        note_id: The note to comment on
+        content: Comment content
+        created_at: Optional simulation timestep (integer)
+    
+    Returns:
+        comment_id of the created comment
+    """
+    if created_at is not None:
+        cursor.execute("""
+            INSERT INTO note_comment (user_id, note_id, content, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, note_id, content, created_at))
+    else:
+        cursor.execute("""
+            INSERT INTO note_comment (user_id, note_id, content, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (user_id, note_id, content))
+    return cursor.lastrowid
+
+
+def get_note_comments(cursor: sqlite3.Cursor, note_id: int) -> list:
+    """Get all comments on a note.
+    
+    Args:
+        cursor: Database cursor
+        note_id: The note ID
+    
+    Returns:
+        List of comment dictionaries
+    """
+    cursor.execute("""
+        SELECT nc.comment_id, nc.user_id, nc.content, nc.created_at,
+               u.user_name, u.name
+        FROM note_comment nc
+        JOIN user u ON nc.user_id = u.user_id
+        WHERE nc.note_id = ?
+        ORDER BY nc.created_at ASC
+    """, (note_id,))
+    
+    comments = []
+    for row in cursor.fetchall():
+        comments.append({
+            'comment_id': row[0],
+            'user_id': row[1],
+            'content': row[2],
+            'created_at': row[3],
+            'user_name': row[4],
+            'name': row[5] or row[4]
+        })
+    return comments
+
 
 # ==================== Comment Functions ====================
 

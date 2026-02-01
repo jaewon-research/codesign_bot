@@ -36,7 +36,8 @@ from camel.types import ModelPlatformType, ModelType
 from codesign_platform import CodesignPlatform
 
 from oasis.clock.clock import Clock
-from oasis.social_agent.agents_generator import generate_agents
+# Use custom agent generator with note support
+from codesign_agents_generator import generate_codesign_agents
 from oasis.social_platform.channel import Channel
 from oasis.social_platform.platform import Platform
 from oasis.social_platform.typing import ActionType
@@ -91,8 +92,10 @@ DEFAULT_DB_PATH = ":memory:"
 DEFAULT_CSV_PATH = os.path.join(DATA_DIR, "agents.csv")
 TEST_CSV_PATH = os.path.join(DATA_DIR, "agents_test.csv")
 print(f"TEST_CSV_PATH: {TEST_CSV_PATH}")
-TEST_TIMESTEPS = 5
+TEST_TIMESTEPS = 3  # Number of timesteps for test mode
 
+# The human user is defined as user_id = 0
+HUMAN_USER_ID = 0
 
 async def running(
     db_path: str | None = DEFAULT_DB_PATH,
@@ -109,22 +112,34 @@ async def running(
     # Set up database
     db_path = DEFAULT_DB_PATH if db_path is None else db_path
     csv_path = DEFAULT_CSV_PATH if csv_path is None else csv_path
-    if os.path.exists(db_path):
-        os.remove(db_path)
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     # Create database connection
     db = sqlite3.connect(db_path)
     db_cursor = db.cursor()
 
-    # Add tables specific to codesignbot simulation
+    # Add tables specific to codesignbot simulation (IF NOT EXISTS)
     create_note_tables(db, db_cursor)
     create_profile_table(db, db_cursor)
     create_friendship_tables(db, db_cursor)
     create_follow_request_table(db, db_cursor)
     create_notification_table(db, db_cursor)
-    # create_question_tables(db, db_cursor)
-    # create_chat_tables(db, db_cursor)
+    
+    # Clear previous agent data while preserving human notes (user_id=0)
+    # This allows running simulation multiple times without conflicts
+    try:
+        db_cursor.execute("DELETE FROM user")  # Will be recreated by generate_agents
+        db_cursor.execute("DELETE FROM follow")
+        db_cursor.execute("DELETE FROM post")
+        db_cursor.execute("DELETE FROM rec")
+        db_cursor.execute("DELETE FROM trace")
+        db_cursor.execute("DELETE FROM connection")
+        db_cursor.execute("DELETE FROM friend_request")
+        # Keep notes - they contain human posts that should persist
+        db.commit()
+        social_log.info("Cleared agent data, preserved notes")
+    except Exception as e:
+        social_log.warning(f"Could not clear some tables (may not exist): {e}")
 
     # Set up infrastructure
     start_time = 0
@@ -146,31 +161,37 @@ async def running(
     simulation_task = asyncio.create_task(platform.running())
 
     # Set up LLM model
+    print("🧠 Setting up LLM model...", flush=True)
     if inference_configs["model_type"][:3] == "gpt":
         model = ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI,
             model_type=ModelType(inference_configs["model_type"]),
         )
+    print(f"✅ LLM model ready: {inference_configs['model_type']}", flush=True)
 
-    agent_graph = await generate_agents(agent_info_path=csv_path,
+    print("🔄 Generating agents...", flush=True)
+    agent_graph = await generate_codesign_agents(agent_info_path=csv_path,
                                         channel=channel,
                                         start_time=start_time,
                                         model=model,
                                         recsys_type=recsys_type,
                                         available_actions=available_actions,
                                         twitter=platform)
+    print(f"✅ Generated {agent_graph.get_num_nodes()} agents", flush=True)
     # agent_graph.visualize("initial_social_graph.png")
 
     # Simulation starts at 1PM
     start_hour = 13
 
     # Main simulation loop
+    print(f"🚀 Starting main loop with {num_timesteps} timesteps...", flush=True)
     for timestep in range(1, num_timesteps + 1):
         clock.time_step = timestep * 3
         db_file = db_path.split("/")[-1]
-        print(Back.GREEN + f"DB:{db_file} timestep:{timestep}" + Back.RESET)
+        print(f"⏱️ Timestep {timestep}/{num_timesteps}", flush=True)
 
         # Custom twitter-style recsys with connection degree filtering
+        print(f"  📊 Updating recommendations...", flush=True)
         await update_rec_table_filtered(
             platform,
             max_connection_degree=3,
@@ -180,7 +201,13 @@ async def running(
         # 0.05 * timestep here means 3 minutes / timestep
         simulation_time_hour = start_hour + 0.05 * timestep
         tasks = []
+        active_agents = 0
         for node_id, agent in agent_graph.get_agents():
+            # Skip the human user in the simulation loop
+            # The human user interacts through the UI
+            if node_id == HUMAN_USER_ID:
+                continue
+
             if agent.user_info.is_controllable is False:
                 agent_ac_prob = random.random()
 
@@ -189,10 +216,13 @@ async def running(
                 threshold = active_threshold[int(simulation_time_hour % 24)]
                 if agent_ac_prob < threshold:
                     tasks.append(agent.perform_action_by_llm())
+                    active_agents += 1
             else:
                 await agent.perform_action_by_hci()
 
+        print(f"  🤖 {active_agents} agents taking action...", flush=True)
         await asyncio.gather(*tasks)
+        print(f"  ✅ Timestep {timestep} complete", flush=True)
         # agent_graph.visualize(f"timestep_{timestep}_social_graph.png")
 
     await channel.write_to_receive_queue((None, None, ActionType.EXIT))

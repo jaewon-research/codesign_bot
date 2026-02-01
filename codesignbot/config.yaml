@@ -9,12 +9,11 @@ simulation:
   recsys_type: twhin-bert                  # Recommendation system type
   available_actions:                       # Actions agents can take
     - do_nothing
-    - repost
-    - like_post
-    - create_post
-    - follow
-    - create_comment
-    - like_comment
+    - create_note
+    - like_note
+    - comment_on_note
+    - send_friend_request
+    - accept_friend_request
 
 inference:
   model_type: gpt-4o-mini                  # OpenAI model to use

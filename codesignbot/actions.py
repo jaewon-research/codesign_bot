@@ -19,8 +19,9 @@ class CodesignActionType(Enum):
     # Notes
     CREATE_NOTE = "create_note"
     LIKE_NOTE = "like_note"
+    COMMENT_ON_NOTE = "comment_on_note"
 
-    # Comments
+    # Comments (on posts)
     CREATE_COMMENT = "create_comment"
     LIKE_COMMENT = "like_comment"
     
@@ -40,6 +41,7 @@ class CodesignActionType(Enum):
             cls.SHARE_QUESTION,
             cls.CREATE_NOTE,
             cls.LIKE_NOTE,
+            cls.COMMENT_ON_NOTE,
             cls.CREATE_COMMENT,
             cls.LIKE_COMMENT,
             cls.GET_NOTIFICATIONS,

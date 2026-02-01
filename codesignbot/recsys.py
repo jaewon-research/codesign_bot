@@ -14,6 +14,30 @@ from oasis.social_platform.process_recsys_posts import generate_post_vector
 
 from database import build_social_graph
 
+
+def parse_created_at(created_at_value, current_time: int = 0) -> int:
+    """
+    Parse created_at to integer timestep.
+    
+    Handles both:
+    - Integer timesteps (from simulation): 0, 3, 6, 9...
+    - Datetime strings (legacy): '2026-01-12 00:36:24'
+    
+    For datetime strings, treats them as "current" (most recent).
+    """
+    if created_at_value is None:
+        return 0
+    if isinstance(created_at_value, int):
+        return created_at_value
+    if isinstance(created_at_value, str):
+        try:
+            # Try parsing as integer string first
+            return int(created_at_value)
+        except ValueError:
+            # It's a datetime string - treat as current time (most recent)
+            return current_time
+    return 0
+
 # Global cache for twhin model
 twhin_tokenizer = None
 twhin_model = None
@@ -82,8 +106,9 @@ def rec_sys_twhin_filtered(
         post_vectors = all_vectors[len(user_profiles):]
 
         # Compute date/recency scores for posts
+        # Using parse_created_at to handle both integer timesteps and legacy datetime strings
         date_scores = np.array([
-            np.log((271.8 - max(0, current_time - int(post.get('created_at', 0)))) / 100)
+            np.log((271.8 - max(0, current_time - parse_created_at(post.get('created_at'), current_time))) / 100)
             for post in post_table
         ])
 
@@ -138,7 +163,15 @@ async def update_rec_table_filtered(
     """
     # Fetch tables
     user_table = fetch_table_from_db(platform.db_cursor, "user")
-    post_table = fetch_table_from_db(platform.db_cursor, "post")
+    # Fetch notes instead of posts
+    platform.db_cursor.execute("""
+        SELECT note_id as post_id, user_id, content, created_at
+        FROM note
+        ORDER BY created_at DESC
+    """)
+    columns = ['post_id', 'user_id', 'content', 'created_at']
+    note_table = [dict(zip(columns, row)) for row in platform.db_cursor.fetchall()]
+    
     rec_matrix = fetch_rec_table_as_matrix(platform.db_cursor)
     
     # Build social graph from current connections
@@ -147,7 +180,7 @@ async def update_rec_table_filtered(
     # Run filtered recommendation
     new_rec_matrix = rec_sys_twhin_filtered(
         user_table=user_table,
-        post_table=post_table,
+        post_table=note_table, # Use notes instead of posts
         rec_matrix=rec_matrix,
         social_graph=social_graph,
         max_connection_degree=max_connection_degree,
