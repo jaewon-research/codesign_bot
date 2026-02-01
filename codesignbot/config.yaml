@@ -5,6 +5,8 @@ data:
 
 simulation:
   num_timesteps: 10                        # How many timesteps to run
+  simulation_hours: 24                     # Total simulation duration in hours (e.g., 24 = each timestep is 24/10 = 2.4 hours)
+  batch_size: 16                           # Agents per batch (1 = sequential, num_agents = fully concurrent)
   clock_factor: 60                         # Time magnification factor
   recsys_type: twhin-bert                  # Recommendation system type
   available_actions:                       # Actions agents can take

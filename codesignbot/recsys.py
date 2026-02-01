@@ -17,16 +17,17 @@ from database import build_social_graph
 
 def parse_created_at(created_at_value, current_time: int = 0) -> int:
     """
-    Parse created_at to integer timestep.
+    Parse created_at to Unix timestamp.
     
-    Handles both:
-    - Integer timesteps (from simulation): 0, 3, 6, 9...
-    - Datetime strings (legacy): '2026-01-12 00:36:24'
+    Handles:
+    - Unix timestamps (integers): 1706800000, 1706828800, etc.
+    - Integer strings: "1706800000"
+    - Datetime strings (legacy): '2026-01-12 00:36:24' (treated as current time)
     
     For datetime strings, treats them as "current" (most recent).
     """
     if created_at_value is None:
-        return 0
+        return current_time  # Treat missing as current
     if isinstance(created_at_value, int):
         return created_at_value
     if isinstance(created_at_value, str):
@@ -36,7 +37,32 @@ def parse_created_at(created_at_value, current_time: int = 0) -> int:
         except ValueError:
             # It's a datetime string - treat as current time (most recent)
             return current_time
-    return 0
+    return current_time
+
+
+def compute_recency_score(post_created_at: int, current_time: int, max_age_hours: float = 24.0) -> float:
+    """
+    Compute a recency score for a post.
+    
+    Args:
+        post_created_at: Unix timestamp when post was created
+        current_time: Current Unix timestamp
+        max_age_hours: Maximum age to consider (posts older than this get minimum score)
+    
+    Returns:
+        Score between 0.1 (oldest) and 1.0 (newest)
+    """
+    age_seconds = max(0, current_time - post_created_at)
+    max_age_seconds = max_age_hours * 3600
+    
+    # Normalize to 0-1 range, with newer posts getting higher scores
+    # Posts older than max_age get a minimum score of 0.1
+    if age_seconds >= max_age_seconds:
+        return 0.1
+    
+    # Linear decay from 1.0 (newest) to 0.1 (max_age)
+    normalized_age = age_seconds / max_age_seconds
+    return 1.0 - (0.9 * normalized_age)
 
 # Global cache for twhin model
 twhin_tokenizer = None
@@ -105,10 +131,13 @@ def rec_sys_twhin_filtered(
         user_vectors = all_vectors[:len(user_profiles)]
         post_vectors = all_vectors[len(user_profiles):]
 
-        # Compute date/recency scores for posts
-        # Using parse_created_at to handle both integer timesteps and legacy datetime strings
+        # Compute date/recency scores for posts using Unix timestamps
         date_scores = np.array([
-            np.log((271.8 - max(0, current_time - parse_created_at(post.get('created_at'), current_time))) / 100)
+            compute_recency_score(
+                parse_created_at(post.get('created_at'), current_time),
+                current_time,
+                max_age_hours=24.0  # Use simulation_hours here if available
+            )
             for post in post_table
         ])
 

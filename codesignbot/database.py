@@ -1471,3 +1471,110 @@ def create_notification_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) 
     
 #     result = cursor.fetchone()[0]
 #     return result if result else 0
+
+
+# ==================== Simulation Metadata ====================
+
+def create_simulation_meta_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+    """Create the simulation_meta table to store simulation timing configuration."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS simulation_meta (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            start_time INTEGER NOT NULL,
+            simulation_hours REAL NOT NULL DEFAULT 24,
+            num_timesteps INTEGER NOT NULL,
+            seconds_per_timestep REAL NOT NULL,
+            created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    conn.commit()
+    print("✓ Created simulation_meta table")
+
+
+def set_simulation_meta(cursor: sqlite3.Cursor, conn: sqlite3.Connection,
+                        start_time: int, simulation_hours: float, 
+                        num_timesteps: int) -> dict:
+    """Set simulation metadata. Replaces any existing metadata.
+    
+    Args:
+        cursor: Database cursor
+        conn: Database connection
+        start_time: Unix timestamp when simulation starts
+        simulation_hours: Total duration of simulation in hours (e.g., 24)
+        num_timesteps: Number of timesteps in the simulation
+    
+    Returns:
+        dict with the stored metadata including calculated seconds_per_timestep
+    """
+    seconds_per_timestep = (simulation_hours * 3600) / num_timesteps
+    
+    # Delete any existing metadata and insert new
+    cursor.execute("DELETE FROM simulation_meta")
+    cursor.execute("""
+        INSERT INTO simulation_meta (id, start_time, simulation_hours, num_timesteps, seconds_per_timestep)
+        VALUES (1, ?, ?, ?, ?)
+    """, (start_time, simulation_hours, num_timesteps, seconds_per_timestep))
+    conn.commit()
+    
+    return {
+        "start_time": start_time,
+        "simulation_hours": simulation_hours,
+        "num_timesteps": num_timesteps,
+        "seconds_per_timestep": seconds_per_timestep
+    }
+
+
+def get_simulation_meta(cursor: sqlite3.Cursor) -> Optional[dict]:
+    """Get simulation metadata.
+    
+    Returns:
+        dict with start_time, simulation_hours, num_timesteps, seconds_per_timestep
+        or None if no metadata exists
+    """
+    cursor.execute("""
+        SELECT start_time, simulation_hours, num_timesteps, seconds_per_timestep
+        FROM simulation_meta WHERE id = 1
+    """)
+    row = cursor.fetchone()
+    if row:
+        return {
+            "start_time": row[0],
+            "simulation_hours": row[1],
+            "num_timesteps": row[2],
+            "seconds_per_timestep": row[3]
+        }
+    return None
+
+
+def timestep_to_unix(cursor: sqlite3.Cursor, timestep: int) -> Optional[int]:
+    """Convert a timestep number to Unix timestamp.
+    
+    Args:
+        cursor: Database cursor
+        timestep: The timestep number (0, 1, 2, ...)
+    
+    Returns:
+        Unix timestamp for that timestep, or None if no metadata
+    """
+    meta = get_simulation_meta(cursor)
+    if meta is None:
+        return None
+    return int(meta["start_time"] + (timestep * meta["seconds_per_timestep"]))
+
+
+def unix_to_timestep(cursor: sqlite3.Cursor, unix_time: int) -> Optional[int]:
+    """Convert a Unix timestamp to the nearest timestep number.
+    
+    Args:
+        cursor: Database cursor
+        unix_time: Unix timestamp
+    
+    Returns:
+        Timestep number, or None if no metadata
+    """
+    meta = get_simulation_meta(cursor)
+    if meta is None:
+        return None
+    if meta["seconds_per_timestep"] == 0:
+        return 0
+    return int((unix_time - meta["start_time"]) / meta["seconds_per_timestep"])

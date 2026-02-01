@@ -12,6 +12,30 @@ from database import (
 class CodesignPlatform(Platform):
     """Extended Platform with codesign-specific action handlers."""
     
+    # Per-agent timestamps for realistic timing within timesteps
+    # Set by simulation before each agent acts
+    _agent_timestamps = {}
+    
+    @classmethod
+    def set_agent_timestamp(cls, agent_id: int, timestamp: int):
+        """Set the timestamp for a specific agent's actions."""
+        cls._agent_timestamps[agent_id] = timestamp
+    
+    @classmethod
+    def clear_agent_timestamps(cls):
+        """Clear all agent timestamps (call at end of timestep)."""
+        cls._agent_timestamps.clear()
+    
+    def get_time_for_agent(self, agent_id: int) -> int:
+        """Get the timestamp to use for this agent's actions.
+        
+        Returns the agent's assigned timestamp if set, otherwise falls back to clock.
+        """
+        if agent_id in self._agent_timestamps:
+            return self._agent_timestamps[agent_id]
+        # Fallback to global clock
+        return int(self.sandbox_clock.get_time_step())
+    
     def _get_username(self, user_id):
         """Get username for logging purposes."""
         try:
@@ -260,8 +284,8 @@ class CodesignPlatform(Platform):
         """
         content, visibility = message
         try:
-            # Get current simulation timestep
-            current_time = self.sandbox_clock.get_time_step()
+            # Get this agent's assigned timestamp (or fallback to clock)
+            current_time = self.get_time_for_agent(agent_id)
             
             note_id = create_note_db(
                 self.db_cursor,
@@ -323,8 +347,8 @@ class CodesignPlatform(Platform):
         """
         note_id, content = message
         try:
-            # Get current simulation timestep
-            current_time = self.sandbox_clock.get_time_step()
+            # Get this agent's assigned timestamp (or fallback to clock)
+            current_time = self.get_time_for_agent(agent_id)
             
             comment_id = create_note_comment_db(
                 self.db_cursor,

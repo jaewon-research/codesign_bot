@@ -48,8 +48,13 @@ from database import (
     create_friendship_tables,
     create_follow_request_table,
     create_notification_table,
+    create_simulation_meta_table,
+    set_simulation_meta,
+    get_simulation_meta,
+    timestep_to_unix,
 )
 from recsys import update_rec_table_filtered
+import time
 from dotenv import load_dotenv
 
 load_dotenv()  # Load variables from .env file
@@ -101,6 +106,8 @@ async def running(
     db_path: str | None = DEFAULT_DB_PATH,
     csv_path: str | None = DEFAULT_CSV_PATH,
     num_timesteps: int = 3,
+    simulation_hours: float = 24.0,  # Total duration of simulation in hours
+    batch_size: int = 16,  # Agents per batch (1 = sequential, num_agents = fully concurrent)
     clock_factor: int = 60,
     recsys_type: str = "twhin-bert",
     inference_configs: dict[str, Any] | None = None,
@@ -124,6 +131,22 @@ async def running(
     create_friendship_tables(db, db_cursor)
     create_follow_request_table(db, db_cursor)
     create_notification_table(db, db_cursor)
+    create_simulation_meta_table(db, db_cursor)
+    
+    # Calculate simulation timing using Unix timestamps
+    simulation_start_time = int(time.time())  # Current Unix timestamp
+    seconds_per_timestep = (simulation_hours * 3600) / num_timesteps
+    
+    # Store simulation metadata
+    sim_meta = set_simulation_meta(
+        db_cursor, db,
+        start_time=simulation_start_time,
+        simulation_hours=simulation_hours,
+        num_timesteps=num_timesteps
+    )
+    print(f"📅 Simulation timing: {simulation_hours}h total, {num_timesteps} timesteps", flush=True)
+    print(f"   Each timestep = {seconds_per_timestep/3600:.2f} hours ({seconds_per_timestep:.0f} seconds)", flush=True)
+    print(f"   Start time: {simulation_start_time} (Unix timestamp)", flush=True)
     
     # Clear previous agent data while preserving human notes (user_id=0)
     # This allows running simulation multiple times without conflicts
@@ -142,15 +165,15 @@ async def running(
         social_log.warning(f"Could not clear some tables (may not exist): {e}")
 
     # Set up infrastructure
-    start_time = 0
     clock = Clock(k=clock_factor)
+    clock.time_step = simulation_start_time  # Initialize with start Unix timestamp
     channel = Channel()
 
     platform = CodesignPlatform(
         db_path=db_path,
         channel=channel,
         sandbox_clock=clock,
-        start_time=start_time,
+        start_time=simulation_start_time,  # Use Unix timestamp
         recsys_type=recsys_type,
         refresh_rec_post_count=2,
         max_rec_post_len=2,
@@ -172,7 +195,7 @@ async def running(
     print("🔄 Generating agents...", flush=True)
     agent_graph = await generate_codesign_agents(agent_info_path=csv_path,
                                         channel=channel,
-                                        start_time=start_time,
+                                        start_time=simulation_start_time,
                                         model=model,
                                         recsys_type=recsys_type,
                                         available_actions=available_actions,
@@ -186,9 +209,13 @@ async def running(
     # Main simulation loop
     print(f"🚀 Starting main loop with {num_timesteps} timesteps...", flush=True)
     for timestep in range(1, num_timesteps + 1):
-        clock.time_step = timestep * 3
+        # Set clock to Unix timestamp for this timestep
+        current_unix_time = simulation_start_time + int(timestep * seconds_per_timestep)
+        clock.time_step = current_unix_time
+        
         db_file = db_path.split("/")[-1]
-        print(f"⏱️ Timestep {timestep}/{num_timesteps}", flush=True)
+        hours_elapsed = (timestep * seconds_per_timestep) / 3600
+        print(f"⏱️ Timestep {timestep}/{num_timesteps} (t={current_unix_time}, +{hours_elapsed:.1f}h)", flush=True)
 
         # Custom twitter-style recsys with connection degree filtering
         print(f"  📊 Updating recommendations...", flush=True)
@@ -198,10 +225,16 @@ async def running(
             current_time=clock.time_step,
         )
 
-        # 0.05 * timestep here means 3 minutes / timestep
+        # Calculate the time window for this timestep
+        # Previous timestep end = current timestep start
+        timestep_start_unix = simulation_start_time + int((timestep - 1) * seconds_per_timestep)
+        timestep_end_unix = simulation_start_time + int(timestep * seconds_per_timestep)
+        
+        # 0.05 * timestep here means 3 minutes / timestep (for activity threshold)
         simulation_time_hour = start_hour + 0.05 * timestep
-        tasks = []
-        active_agents = 0
+        
+        # Collect all agents that will act this timestep, with sampled action times
+        active_agents_with_times = []
         for node_id, agent in agent_graph.get_agents():
             # Skip the human user in the simulation loop
             # The human user interacts through the UI
@@ -215,13 +248,51 @@ async def running(
                 active_threshold = other_info.get("active_threshold", [1.0] * 24)
                 threshold = active_threshold[int(simulation_time_hour % 24)]
                 if agent_ac_prob < threshold:
-                    tasks.append(agent.perform_action_by_llm())
-                    active_agents += 1
+                    # Sample a random timestamp within this timestep's interval
+                    sampled_time = random.randint(timestep_start_unix, timestep_end_unix)
+                    active_agents_with_times.append((sampled_time, node_id, agent))
             else:
                 await agent.perform_action_by_hci()
 
-        print(f"  🤖 {active_agents} agents taking action...", flush=True)
-        await asyncio.gather(*tasks)
+        # Sort agents by their sampled time (earlier times first)
+        active_agents_with_times.sort(key=lambda x: x[0])
+        
+        total_active = len(active_agents_with_times)
+        num_batches = (total_active + batch_size - 1) // batch_size if batch_size > 0 else 1
+        
+        print(f"  🤖 {total_active} agents taking action in {num_batches} batch(es) of {batch_size}...", flush=True)
+        
+        # Process agents in batches, ordered by sampled time
+        # Each agent gets their individual sampled timestamp via CodesignPlatform
+        for batch_idx in range(num_batches):
+            batch_start = batch_idx * batch_size
+            batch_end = min(batch_start + batch_size, total_active)
+            batch = active_agents_with_times[batch_start:batch_end]
+            
+            if batch:
+                # Set individual timestamps for each agent in this batch
+                # The platform will use these when creating notes/comments
+                for sampled_time, node_id, _ in batch:
+                    CodesignPlatform.set_agent_timestamp(node_id, sampled_time)
+                
+                # Also set clock to batch max for any fallback/legacy code
+                batch_max_time = max(item[0] for item in batch)
+                clock.time_step = batch_max_time
+                
+                # Run this batch concurrently - each agent uses their assigned timestamp
+                batch_tasks = [agent.perform_action_by_llm() for _, _, agent in batch]
+                await asyncio.gather(*batch_tasks)
+                
+                if num_batches > 1:
+                    # Show time range for this batch
+                    batch_min_time = min(item[0] for item in batch)
+                    time_start = (batch_min_time - timestep_start_unix) / 3600
+                    time_end = (batch_max_time - timestep_start_unix) / 3600
+                    print(f"    ✓ Batch {batch_idx + 1}/{num_batches} complete ({len(batch)} agents, +{time_start:.1f}h to +{time_end:.1f}h)", flush=True)
+        
+        # Clear agent timestamps at end of timestep
+        CodesignPlatform.clear_agent_timestamps()
+        
         print(f"  ✅ Timestep {timestep} complete", flush=True)
         # agent_graph.visualize(f"timestep_{timestep}_social_graph.png")
 
