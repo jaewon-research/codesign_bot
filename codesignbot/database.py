@@ -13,6 +13,99 @@ def get_schema_path() -> str:
     return schema_dir
 
 
+# ==================== Agent Thoughts ========================
+
+def create_agent_thought_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+    """Create the agent_thought table to store agent reasoning before actions."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_thought (
+            thought_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            thought TEXT NOT NULL,
+            action_taken TEXT,
+            action_target_id INTEGER,
+            action_result_id INTEGER,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES user(user_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_thought_user ON agent_thought(user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_thought_time ON agent_thought(created_at)")
+    conn.commit()
+    print("✓ Created agent_thought table")
+
+
+def create_agent_thought(cursor: sqlite3.Cursor, user_id: int, thought: str,
+                         action_taken: str = None, action_target_id: int = None,
+                         action_result_id: int = None, created_at: int = None) -> int:
+    """Store an agent's thought/reasoning.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The agent who had the thought
+        thought: The agent's internal monologue/reasoning
+        action_taken: What action they took (e.g., 'create_note', 'like_note')
+        action_target_id: ID of the target (e.g., note_id they liked/commented on)
+        action_result_id: ID of the created item (e.g., note_id or comment_id created)
+        created_at: Unix timestamp
+    
+    Returns:
+        thought_id of the created record
+    """
+    cursor.execute("""
+        INSERT INTO agent_thought (user_id, thought, action_taken, action_target_id, action_result_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, thought, action_taken, action_target_id, action_result_id, created_at))
+    return cursor.lastrowid
+
+
+def get_agent_thoughts(cursor: sqlite3.Cursor, user_id: int = None, 
+                       max_created_at: int = None, limit: int = 50) -> List[Dict]:
+    """Get agent thoughts, optionally filtered by user and time.
+    
+    Args:
+        cursor: Database cursor
+        user_id: Filter to specific agent (None for all)
+        max_created_at: Only return thoughts created at or before this time
+        limit: Maximum number of thoughts to return
+    
+    Returns:
+        List of thought dictionaries
+    """
+    query = "SELECT thought_id, user_id, thought, action_taken, action_target_id, created_at FROM agent_thought"
+    conditions = []
+    params = []
+    
+    if user_id is not None:
+        conditions.append("user_id = ?")
+        params.append(user_id)
+    
+    if max_created_at is not None:
+        conditions.append("created_at <= ?")
+        params.append(max_created_at)
+    
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    
+    cursor.execute(query, params)
+    
+    thoughts = []
+    for row in cursor.fetchall():
+        thoughts.append({
+            "thought_id": row[0],
+            "user_id": row[1],
+            "thought": row[2],
+            "action_taken": row[3],
+            "action_target_id": row[4],
+            "created_at": row[5]
+        })
+    
+    return thoughts
+
+
 # ==================== Notes ========================
 
 def create_note_tables(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:

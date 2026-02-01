@@ -6,7 +6,8 @@ from database import (
     send_friend_request, accept_friend_request, reject_friend_request, submit_question_response, 
     share_question_with_friend, create_note as create_note_db, like_note as like_note_db, get_note_owner, 
     create_comment as create_comment_db, like_comment as like_comment_db, get_user_notifications, get_comment_owner, 
-    get_post_owner, mark_notification_read, create_notification, create_note_comment as create_note_comment_db
+    get_post_owner, mark_notification_read, create_notification, create_note_comment as create_note_comment_db,
+    create_agent_thought as create_agent_thought_db
 )
 
 class CodesignPlatform(Platform):
@@ -15,6 +16,10 @@ class CodesignPlatform(Platform):
     # Per-agent timestamps for realistic timing within timesteps
     # Set by simulation before each agent acts
     _agent_timestamps = {}
+    
+    # Class-level reference to database for storing thoughts from agents
+    _db_connection = None
+    _db_cursor = None
     
     @classmethod
     def set_agent_timestamp(cls, agent_id: int, timestamp: int):
@@ -25,6 +30,48 @@ class CodesignPlatform(Platform):
     def clear_agent_timestamps(cls):
         """Clear all agent timestamps (call at end of timestep)."""
         cls._agent_timestamps.clear()
+    
+    @classmethod
+    def set_db_connection(cls, conn, cursor):
+        """Set the database connection for storing agent thoughts."""
+        cls._db_connection = conn
+        cls._db_cursor = cursor
+    
+    @classmethod
+    def store_agent_thought(cls, agent_id: int, thought: str, 
+                           action_taken: str = None, action_target_id: int = None,
+                           action_result_id: int = None):
+        """Store an agent's thought in the database.
+        
+        Args:
+            agent_id: The agent who had the thought
+            thought: The agent's internal reasoning
+            action_taken: What action they took (optional)
+            action_target_id: Target of the action (optional)
+            action_result_id: ID of created item - note_id or comment_id (optional)
+        """
+        if cls._db_cursor is None or cls._db_connection is None:
+            print(f"⚠️ Cannot store thought: no database connection", flush=True)
+            return None
+        
+        try:
+            # Get the agent's timestamp
+            created_at = cls._agent_timestamps.get(agent_id, 0)
+            
+            thought_id = create_agent_thought_db(
+                cls._db_cursor,
+                user_id=agent_id,
+                thought=thought,
+                action_taken=action_taken,
+                action_target_id=action_target_id,
+                action_result_id=action_result_id,
+                created_at=created_at
+            )
+            cls._db_connection.commit()
+            return thought_id
+        except Exception as e:
+            print(f"⚠️ Error storing thought: {e}", flush=True)
+            return None
     
     def get_time_for_agent(self, agent_id: int) -> int:
         """Get the timestamp to use for this agent's actions.

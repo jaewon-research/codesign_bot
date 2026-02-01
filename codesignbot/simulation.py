@@ -49,6 +49,7 @@ from database import (
     create_follow_request_table,
     create_notification_table,
     create_simulation_meta_table,
+    create_agent_thought_table,
     set_simulation_meta,
     get_simulation_meta,
     timestep_to_unix,
@@ -132,6 +133,7 @@ async def running(
     create_follow_request_table(db, db_cursor)
     create_notification_table(db, db_cursor)
     create_simulation_meta_table(db, db_cursor)
+    create_agent_thought_table(db, db_cursor)
     
     # Calculate simulation timing using Unix timestamps
     simulation_start_time = int(time.time())  # Current Unix timestamp
@@ -179,6 +181,9 @@ async def running(
         max_rec_post_len=2,
         following_post_count=3,
     )
+    
+    # Set database connection for storing agent thoughts
+    CodesignPlatform.set_db_connection(db, db_cursor)
 
     # Start simulation event loop
     simulation_task = asyncio.create_task(platform.running())
