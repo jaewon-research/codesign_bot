@@ -83,6 +83,7 @@ class RecsysType(Enum):
     TWHIN = "twhin-bert"
     REDDIT = "reddit"
     RANDOM = "random"
+    CHRONOLOGICAL = "chronological"
 
 
 class DefaultPlatformType(Enum):
