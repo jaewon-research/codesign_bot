@@ -1566,6 +1566,328 @@ def create_notification_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) 
 #     return result if result else 0
 
 
+# ==================== Evaluation Flow ====================
+
+EVALUATION_QUESTIONS = [
+    # Self-disclosure
+    ("self_disclosure", "A close friend posts about going through a tough breakup. How would you respond, and how much of your own experience would you share?",
+     "Your friend just posted: 'Going through the worst breakup of my life. Don't even know who I am anymore.'", 1),
+    ("self_disclosure", "You just got a major promotion at work. Walk through your thought process about whether and how to share this on social media.",
+     None, 2),
+    
+    # Conflict style
+    ("conflict", "Someone completely misreads your post and leaves a hostile comment accusing you of something you didn't mean. What goes through your mind, and what do you do?",
+     "You posted about a local policy change. Someone replied: 'Wow, must be nice to be this privileged and clueless. Read a book.'", 3),
+    ("conflict", "Two of your friends are arguing in the comments of a post. One of them tags you and asks you to back them up. How do you handle this?",
+     None, 4),
+    
+    # Emotional reactivity
+    ("emotional_reactivity", "You see a post that makes you genuinely angry — maybe a political take, a callous opinion, or someone being cruel. Walk through your internal process before you decide what to do.",
+     None, 5),
+    ("emotional_reactivity", "A friend posts something exciting and gets hundreds of congratulations, but you're having a terrible day. What's your honest internal reaction, and what do you actually do?",
+     None, 6),
+    
+    # Humor and tone
+    ("humor_tone", "A friend posts something cringey — maybe an overly dramatic inspirational quote or a very try-hard selfie caption. What goes through your head, and do you engage?",
+     None, 7),
+    ("humor_tone", "Someone in your feed makes a joke that lands poorly — it's not offensive, just awkward. How do you react?",
+     None, 8),
+    
+    # Social signaling
+    ("social_signaling", "You accomplished something you're genuinely proud of, but posting about it might come across as bragging. How do you decide what to do?",
+     None, 9),
+    ("social_signaling", "You see someone posting what's clearly a humble-brag. What's your internal reaction and do you respond?",
+     None, 10),
+    
+    # Boundary setting
+    ("boundaries", "An acquaintance you barely know keeps commenting on all your posts with overly familiar messages. How do you handle it?",
+     None, 11),
+    ("boundaries", "Someone DMs you asking for a favor that feels like an overstep. How do you respond, and what's your thought process?",
+     None, 12),
+    
+    # Empathy patterns
+    ("empathy", "A friend posts something vague and clearly sad — just 'I can't do this anymore' with no context. What's your move?",
+     None, 13),
+    ("empathy", "Someone you follow but don't know well shares a deeply personal story about mental health. How do you engage, if at all?",
+     None, 14),
+    
+    # Content preferences
+    ("content_preferences", "Think about the last time you stopped scrolling to actually read or engage with something. What was it about that content that caught you?",
+     None, 15),
+    ("content_preferences", "What kind of posts make you immediately keep scrolling? What patterns turn you off?",
+     None, 16),
+    
+    # Moral judgment
+    ("moral_judgment", "Someone in your feed shares information that you're pretty sure is misleading or false. Walk through your decision process about whether and how to respond.",
+     None, 17),
+    ("moral_judgment", "A popular creator you follow gets 'canceled' for something they said. You've enjoyed their content. How do you think about this situation?",
+     None, 18),
+    
+    # Communication style
+    ("communication_style", "Describe how you typically write a comment or reply. Are you short and casual? Do you use emojis? Are you more formal? Give an example of how you'd compliment a friend's vacation photo.",
+     None, 19),
+    ("communication_style", "How do you decide between reacting to a post (like/heart) versus actually writing a comment? What's the threshold?",
+     None, 20),
+]
+
+
+def create_account_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+    """Create the account table for multi-user auth."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS account (
+            account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            openai_api_key TEXT,
+            created_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_account_email ON account(email)")
+    conn.commit()
+    print("✓ Created account table")
+
+
+def create_evaluation_tables(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
+    """Create evaluation flow tables for agent personality calibration."""
+    
+    # Question bank (shared across all users)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation_question (
+            question_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            question_text TEXT NOT NULL,
+            scenario_context TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_adaptive INTEGER DEFAULT 0
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_eval_q_category ON evaluation_question(category)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_eval_q_order ON evaluation_question(sort_order)")
+    
+    # Each question's full response cycle (per user)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation_round (
+            round_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            user_answer TEXT,
+            agent_thinking TEXT,
+            agent_answer TEXT,
+            user_evaluation TEXT,
+            user_agreement_score INTEGER,
+            profile_version_used INTEGER,
+            created_at REAL DEFAULT (strftime('%s', 'now')),
+            FOREIGN KEY (account_id) REFERENCES account(account_id),
+            FOREIGN KEY (question_id) REFERENCES evaluation_question(question_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_eval_r_question ON evaluation_round(question_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_eval_r_account ON evaluation_round(account_id)")
+    
+    # Living profile document that conditions the agent (per user)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_profile (
+            profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            profile_text TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            updated_at REAL DEFAULT (strftime('%s', 'now')),
+            FOREIGN KEY (account_id) REFERENCES account(account_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_profile_account ON agent_profile(account_id)")
+    
+    conn.commit()
+    print("✓ Created evaluation tables (evaluation_question, evaluation_round, agent_profile)")
+
+
+def seed_evaluation_questions(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> int:
+    """Seed the evaluation question bank. Skips if already seeded.
+    
+    Returns:
+        Number of questions inserted (0 if already seeded).
+    """
+    cursor.execute("SELECT COUNT(*) FROM evaluation_question")
+    if cursor.fetchone()[0] > 0:
+        return 0
+    
+    for category, question_text, scenario_context, sort_order in EVALUATION_QUESTIONS:
+        cursor.execute("""
+            INSERT INTO evaluation_question (category, question_text, scenario_context, sort_order)
+            VALUES (?, ?, ?, ?)
+        """, (category, question_text, scenario_context, sort_order))
+    
+    conn.commit()
+    count = len(EVALUATION_QUESTIONS)
+    print(f"✓ Seeded {count} evaluation questions")
+    return count
+
+
+def get_evaluation_questions(cursor: sqlite3.Cursor) -> List[Dict]:
+    """Get all evaluation questions ordered by sort_order."""
+    cursor.execute("""
+        SELECT question_id, category, question_text, scenario_context, sort_order, is_adaptive
+        FROM evaluation_question
+        ORDER BY sort_order ASC
+    """)
+    return [
+        {
+            "question_id": row[0],
+            "category": row[1],
+            "question_text": row[2],
+            "scenario_context": row[3],
+            "sort_order": row[4],
+            "is_adaptive": bool(row[5])
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def get_next_unanswered_question(cursor: sqlite3.Cursor, account_id: int) -> Optional[Dict]:
+    """Get the next question that hasn't been answered by this account."""
+    cursor.execute("""
+        SELECT eq.question_id, eq.category, eq.question_text, eq.scenario_context, eq.sort_order
+        FROM evaluation_question eq
+        LEFT JOIN evaluation_round er ON eq.question_id = er.question_id AND er.account_id = ?
+        WHERE er.round_id IS NULL
+        ORDER BY eq.sort_order ASC
+        LIMIT 1
+    """, (account_id,))
+    row = cursor.fetchone()
+    if row:
+        return {
+            "question_id": row[0],
+            "category": row[1],
+            "question_text": row[2],
+            "scenario_context": row[3],
+            "sort_order": row[4]
+        }
+    return None
+
+
+def get_evaluation_progress(cursor: sqlite3.Cursor, account_id: int) -> Dict:
+    """Get evaluation progress statistics for an account."""
+    cursor.execute("SELECT COUNT(*) FROM evaluation_question")
+    total = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(DISTINCT question_id) FROM evaluation_round WHERE account_id = ?", (account_id,))
+    completed = cursor.fetchone()[0]
+    
+    cursor.execute("""
+        SELECT user_agreement_score FROM evaluation_round 
+        WHERE account_id = ? AND user_agreement_score IS NOT NULL
+        ORDER BY round_id DESC
+    """, (account_id,))
+    scores = [row[0] for row in cursor.fetchall()]
+    
+    avg_score = sum(scores) / len(scores) if scores else 0
+    recent_scores = scores[:5]
+    recent_avg = sum(recent_scores) / len(recent_scores) if recent_scores else 0
+    
+    return {
+        "total_questions": total,
+        "completed": completed,
+        "remaining": total - completed,
+        "progress_pct": round((completed / total * 100) if total > 0 else 0, 1),
+        "avg_agreement_score": round(avg_score, 2),
+        "recent_agreement_score": round(recent_avg, 2),
+        "all_scores": scores
+    }
+
+
+def create_evaluation_round(cursor: sqlite3.Cursor, account_id: int, question_id: int, 
+                            user_answer: str, profile_version: int = None) -> int:
+    """Create an evaluation round with the user's answer (step 1)."""
+    cursor.execute("""
+        INSERT INTO evaluation_round (account_id, question_id, user_answer, profile_version_used)
+        VALUES (?, ?, ?, ?)
+    """, (account_id, question_id, user_answer, profile_version))
+    return cursor.lastrowid
+
+
+def update_evaluation_round_agent(cursor: sqlite3.Cursor, round_id: int,
+                                   agent_thinking: str, agent_answer: str) -> None:
+    """Update evaluation round with agent's thinking and answer (step 2)."""
+    cursor.execute("""
+        UPDATE evaluation_round 
+        SET agent_thinking = ?, agent_answer = ?
+        WHERE round_id = ?
+    """, (agent_thinking, agent_answer, round_id))
+
+
+def update_evaluation_round_evaluation(cursor: sqlite3.Cursor, round_id: int,
+                                        user_evaluation: str, 
+                                        user_agreement_score: int) -> None:
+    """Update evaluation round with user's evaluation of agent thinking (step 3)."""
+    cursor.execute("""
+        UPDATE evaluation_round
+        SET user_evaluation = ?, user_agreement_score = ?
+        WHERE round_id = ?
+    """, (user_evaluation, user_agreement_score, round_id))
+
+
+def get_evaluation_rounds(cursor: sqlite3.Cursor, account_id: int, limit: int = 50) -> List[Dict]:
+    """Get completed evaluation rounds for an account."""
+    cursor.execute("""
+        SELECT er.round_id, er.question_id, eq.question_text, eq.category,
+               er.user_answer, er.agent_thinking, er.agent_answer,
+               er.user_evaluation, er.user_agreement_score, er.created_at
+        FROM evaluation_round er
+        JOIN evaluation_question eq ON er.question_id = eq.question_id
+        WHERE er.account_id = ?
+        ORDER BY er.created_at DESC
+        LIMIT ?
+    """, (account_id, limit))
+    return [
+        {
+            "round_id": row[0],
+            "question_id": row[1],
+            "question_text": row[2],
+            "category": row[3],
+            "user_answer": row[4],
+            "agent_thinking": row[5],
+            "agent_answer": row[6],
+            "user_evaluation": row[7],
+            "user_agreement_score": row[8],
+            "created_at": row[9]
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def get_latest_agent_profile(cursor: sqlite3.Cursor, account_id: int) -> Optional[Dict]:
+    """Get the most recent agent profile for an account."""
+    cursor.execute("""
+        SELECT profile_id, profile_text, version, updated_at
+        FROM agent_profile
+        WHERE account_id = ?
+        ORDER BY version DESC
+        LIMIT 1
+    """, (account_id,))
+    row = cursor.fetchone()
+    if row:
+        return {
+            "profile_id": row[0],
+            "profile_text": row[1],
+            "version": row[2],
+            "updated_at": row[3]
+        }
+    return None
+
+
+def save_agent_profile(cursor: sqlite3.Cursor, account_id: int, profile_text: str) -> int:
+    """Save a new version of the agent profile for an account."""
+    cursor.execute("SELECT COALESCE(MAX(version), 0) FROM agent_profile WHERE account_id = ?", (account_id,))
+    next_version = cursor.fetchone()[0] + 1
+    
+    cursor.execute("""
+        INSERT INTO agent_profile (account_id, profile_text, version)
+        VALUES (?, ?, ?)
+    """, (account_id, profile_text, next_version))
+    return cursor.lastrowid
+
+
 # ==================== Simulation Metadata ====================
 
 def create_simulation_meta_table(conn: sqlite3.Connection, cursor: sqlite3.Cursor) -> None:
